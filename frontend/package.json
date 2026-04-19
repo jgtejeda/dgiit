@@ -1,0 +1,8 @@
+{
+  "name": "glass-task-frontend",
+  "version": "1.0.0",
+  "description": "Frontend para Hyper-Glass Task",
+  "scripts": {
+    "start": "npx http-server -p 8080"
+  }
+}

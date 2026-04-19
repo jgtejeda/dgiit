@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DGIIT | SECTURI</title>
+    <!-- Google Fonts: Manrope -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- CSS -->
+    <link rel="stylesheet" href="styles.css">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Flatpickr (Calendar & Time Picker) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" type="text/css" href="https://npmcdn.com/flatpickr/dist/themes/dark.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/es.js"></script>
+    <!-- SortableJS (Drag & Drop) -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+</head>
+<body class="data-theme">
+    <!-- GLOBAL PARALLAX BACKGROUND -->
+    <div class="parallax-scene" id="data-scene">
+        <div class="base-grid"></div>
+        <div class="parallax-obj obj-deep" data-depth="0.05"><img src="img/obj_b.png" alt="Data Far"></div>
+        <div class="parallax-obj obj-mid" data-depth="0.15"><img src="img/obj_c.png" alt="Data Mid"></div>
+        <div class="parallax-obj obj-fore" data-depth="0.4"><img src="img/obj_a.png" alt="Data Close"></div>
+    </div>
+
+    <!-- Login Overlay -->
+    <section id="login-screen" class="data-login">
+        <div class="stable-card-container">
+            <div class="corporate-card glass-premium">
+                <div class="card-header">
+                    <div class="logo-box" style="width: auto; height: auto; background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 8px 20px rgba(0,0,0,0.25); margin-bottom: 1rem; padding: 15px 25px; border-radius: 12px; display: inline-block;">
+                        <img src="https://sectur.guanajuato.gob.mx/wp-content/uploads/2024/09/logo-turismoeidentidad-gto-300x103.png" alt="DGIIT Logo" style="max-width: 200px; display: block; margin: 0 auto;" />
+                    </div>
+                    <h2>DGIIT</h2>
+                    <p>Autenticación de Nivel</p>
+                </div>
+                <form id="data-login-form">
+                    <div class="corp-input-group">
+                        <label>Email Corporativo</label>
+                        <div class="corp-field">
+                            <i data-lucide="user"></i>
+                            <input type="email" id="login-email" placeholder="usuario@sgc.pro" required>
+                        </div>
+                    </div>
+                    <div class="corp-input-group">
+                        <label>Llave de Acceso</label>
+                        <div class="corp-field">
+                            <i data-lucide="key"></i>
+                            <input type="password" id="login-pass" placeholder="••••••••" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-corporate" id="login-btn">INGRESAR AL SISTEMA</button>
+                    <div id="login-error" class="error-msg hidden">Credenciales inválidas</div>
+                </form>
+            </div>
+        </div>
+    </section>
+
+    <!-- Main App Container -->
+    <div id="main-app" class="app-dashboard hidden">
+        <!-- Unified Header Console -->
+        <header class="glass-header glass-premium">
+            <div class="h-left" style="display: flex; align-items: center; gap: 15px;">
+                <div style="background: rgba(255, 255, 255, 0.95); padding: 6px 12px; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.15);">
+                    <img src="https://sectur.guanajuato.gob.mx/wp-content/uploads/2024/09/logo-turismoeidentidad-gto-300x103.png" alt="Logo" style="height: 24px; display: block;">
+                </div>
+                <div id="clock">--:--:--</div>
+            </div>
+            
+            <div class="h-center-left">
+                <h1 class="dash-title" id="app-title-display">Bienvenido a DGIIT</h1>
+            </div>
+
+            <!-- Header Navigation -->
+            <nav class="header-nav">
+                <button class="nav-btn active" data-view="board-view" id="nav-board">
+                    <i data-lucide="columns-3"></i><span>Tablero</span>
+                </button>
+                <button class="nav-btn" data-view="bitacora-view" id="nav-bitacora">
+                    <i data-lucide="eye"></i><span>Bitácora</span>
+                </button>
+                <button class="nav-btn" data-view="user-mgmt-view" id="nav-users">
+                    <i data-lucide="users"></i><span>Equipo</span>
+                </button>
+                <button class="nav-btn" data-view="archive-view" id="nav-archive">
+                    <i data-lucide="archive"></i><span>Archivo</span>
+                </button>
+            </nav>
+
+            <div class="h-right">
+                <div class="weather-widget glass-pill">
+                    <i data-lucide="cloud" class="w-icon"></i><span class="w-temp">24°C</span>
+                </div>
+                <button class="btn-logout-header" id="nav-logout" title="Cerrar Sesión">
+                    <i data-lucide="log-out"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Dynamic View Area -->
+        <main class="viewport">
+            
+            <!-- VIEW 1: TRELLO BOARD -->
+            <section id="board-view" class="view-section">
+                <div class="board-container">
+                    <div class="trello-board">
+                        <div class="trello-column glass-premium" id="col-todo">
+                            <div class="col-header"><h3>POR HACER</h3><span class="count">0</span></div>
+                            <div class="task-stack" id="stack-todo"></div>
+                            <button class="btn-add-task-modal"><i data-lucide="plus"></i> Nueva Ficha de Proyecto</button>
+                        </div>
+                        <div class="trello-column glass-premium" id="col-progress">
+                            <div class="col-header"><h3>EN PROCESO</h3><span class="count">0</span></div>
+                            <div class="task-stack" id="stack-progress"></div>
+                        </div>
+                        <div class="trello-column glass-premium" id="col-done">
+                            <div class="col-header"><h3>TERMINADO</h3><span class="count">0</span></div>
+                            <div class="task-stack" id="stack-done"></div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 2: BITÁCORA -->
+            <section id="bitacora-view" class="view-section hidden">
+                <div class="full-view-container glass-premium">
+                    <div class="view-header">
+                        <h2>BITÁCORA OMNISCIENTE</h2>
+                        <button class="btn-clear-logs" id="clear-logs">Limpiar Todo</button>
+                    </div>
+                    <div class="log-table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr><th>Timestamp</th><th>Usuario</th><th>Rol</th><th>Acción</th></tr>
+                            </thead>
+                            <tbody id="log-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 3: USER MANAGEMENT -->
+            <section id="user-mgmt-view" class="view-section hidden">
+                <div class="full-view-container glass-premium">
+                    <div class="view-header"><h2>GESTIÓN DE EQUIPO</h2></div>
+                    <div class="mgmt-grid">
+                        <div class="mgmt-form glass-pill">
+                            <h3>Registrar Nuevo Operativo</h3>
+                            <form id="user-create-form">
+                                <input type="text" id="new-user-name" placeholder="Nombre completo" required>
+                                <input type="email" id="new-user-email" placeholder="Email corporativo" required>
+                                <input type="password" id="new-user-pass" placeholder="Password inicial" required>
+                                <input type="text" id="new-user-pos" placeholder="Cargo / Puesto" required>
+                                <input type="text" id="new-user-dept" placeholder="Dirección / Departamento" required>
+                                <select id="new-user-role">
+                                    <option value="USER">Usuario Estándar</option>
+                                    <option value="ADMIN">Administrador</option>
+                                </select>
+                                <button type="submit" class="btn-corporate">CREAR ACCESO</button>
+                            </form>
+                        </div>
+                        <div class="mgmt-list glass-pill">
+                            <h3>Usuarios en el Sistema</h3>
+                            <div class="user-list-wrapper">
+                                <ul id="user-list"></ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- VIEW 4: ARCHIVE -->
+            <section id="archive-view" class="view-section hidden">
+                <div class="full-view-container glass-premium">
+                    <div class="view-header">
+                        <h2>ARCHIVADOS / TERMINADOS</h2>
+                        <button class="btn-clear-logs" id="clear-archive">Vaciar Archivos</button>
+                    </div>
+                    <div class="archive-grid" id="archive-grid-container"></div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- TASK MODAL — 3 TABS                                          -->
+    <!-- ============================================================ -->
+    <div id="task-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-premium">
+
+            <!-- Modal Header -->
+            <div class="modal-header-row">
+                <h2 id="modal-task-title">Nueva Ficha de Proyecto</h2>
+                <button class="btn-close-modal" id="close-modal"><i data-lucide="x"></i></button>
+            </div>
+
+            <!-- Tab Buttons -->
+            <div class="modal-tabs">
+                <button class="modal-tab-btn active" data-tab="tab-info">
+                    <i data-lucide="clipboard-list"></i> Información
+                </button>
+                <button class="modal-tab-btn" data-tab="tab-todos">
+                    <i data-lucide="check-square"></i> Etapas
+                </button>
+                <button class="modal-tab-btn" data-tab="tab-progress">
+                    <i data-lucide="bar-chart-2"></i> Progreso & Notas
+                </button>
+            </div>
+
+            <!-- ===== TAB 1: INFORMACIÓN GENERAL ===== -->
+            <div id="tab-info" class="modal-panel">
+                <form id="task-form" class="mgmt-form">
+                    <div class="form-row">
+                        <div class="input-box">
+                            <label>Título de la Tarea</label>
+                            <input type="text" id="task-title" placeholder="Ej: Análisis de Datos" required>
+                        </div>
+                        <div class="input-box">
+                            <label>Responsable</label>
+                            <select id="task-assignee" required>
+                                <!-- Dynamically populated -->
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="input-box">
+                            <label>Descripción del Avance</label>
+                            <textarea id="task-desc" placeholder="Detalla las actividades a realizar..." required></textarea>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="input-box">
+                            <label>Plazo: Día</label>
+                            <input type="text" id="task-deadline-date" placeholder="Seleccionar Día...">
+                        </div>
+                        <div class="input-box">
+                            <label>Plazo: Hora</label>
+                            <input type="text" id="task-deadline-time" placeholder="Seleccionar Hora...">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="input-box">
+                            <label>Prioridad</label>
+                            <select id="task-priority">
+                                <option value="BAJA">Baja</option>
+                                <option value="MEDIA" selected>Media</option>
+                                <option value="ALTA">Alta</option>
+                                <option value="CRÍTICA">Crítica</option>
+                            </select>
+                        </div>
+                        <div class="input-box">
+                            <label>Columna / Estado</label>
+                            <select id="task-status">
+                                <option value="TODO">Por Hacer</option>
+                                <option value="PROGRESS">En Proceso</option>
+                                <option value="DONE">Terminado</option>
+                            </select>
+                        </div>
+                    </div>
+                    <input type="hidden" id="task-id">
+                    <button type="submit" class="btn-corporate" style="margin-top: 16px;">GUARDAR CAMBIOS EN FICHA</button>
+                </form>
+            </div>
+
+            <!-- ===== TAB 2: ETAPAS / TO-DO ===== -->
+            <div id="tab-todos" class="modal-panel hidden">
+                <div id="todos-new-task-msg" class="tab-empty-msg hidden">
+                    <i data-lucide="info"></i>
+                    <p>Guarda la ficha primero para poder añadir etapas.</p>
+                </div>
+                <div id="todos-content">
+                    <!-- Add new todo -->
+                    <div class="todo-add-row">
+                        <input type="text" id="new-todo-input" placeholder="Escribir nueva etapa o paso...">
+                        <button id="btn-add-todo" class="btn-todo-add"><i data-lucide="plus-circle"></i> Añadir</button>
+                    </div>
+                    <!-- Todo list -->
+                    <div id="todo-list-container" class="todo-list">
+                        <!-- Dynamically populated -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== TAB 3: PROGRESO & RETROALIMENTACIÓN ===== -->
+            <div id="tab-progress" class="modal-panel hidden">
+                <div id="progress-new-task-msg" class="tab-empty-msg hidden">
+                    <i data-lucide="info"></i>
+                    <p>Guarda la ficha primero para reportar progreso y agregar notas.</p>
+                </div>
+                <div id="progress-content">
+                    <!-- Progress Section -->
+                    <div class="progress-section">
+                        <div class="progress-label-row">
+                            <label>Avance de la Tarea</label>
+                            <span id="progress-display-value" class="progress-pct-badge">0%</span>
+                        </div>
+                        <div class="progress-bar-track">
+                            <div id="modal-progress-fill" class="progress-bar-fill" style="width: 0%"></div>
+                        </div>
+                        <div id="progress-slider-wrapper" class="progress-slider-wrapper hidden">
+                            <input type="range" id="task-progress-slider" min="1" max="99" value="1" class="progress-slider">
+                            <p class="progress-hint">Arrastra para actualizar tu porcentaje de avance. Solo disponible en "En Proceso".</p>
+                        </div>
+                        <div id="progress-locked-msg" class="progress-locked-msg hidden">
+                            <i data-lucide="lock"></i> El progreso lo determina la columna (0% o 100%).
+                        </div>
+                        <button id="btn-save-progress" class="btn-corporate hidden" style="margin-top: 12px; padding: 10px 20px; font-size: 0.8rem;">GUARDAR PROGRESO</button>
+                    </div>
+
+                    <!-- Comments Section -->
+                    <div class="comments-section">
+                        <div class="comments-header">
+                            <h3><i data-lucide="message-circle"></i> Retroalimentación</h3>
+                        </div>
+                        <div id="comments-list" class="comments-list">
+                            <!-- Dynamically populated -->
+                        </div>
+                        <!-- Add Comment -->
+                        <div class="comment-input-area">
+                            <textarea id="new-comment-input" placeholder="Escribe una nota o retroalimentación..."></textarea>
+                            <button id="btn-add-comment" class="btn-corporate" style="padding: 10px 20px; font-size: 0.8rem; margin-top: 8px;">
+                                <i data-lucide="send"></i> ENVIAR NOTA
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- CUSTOM DIALOGS FOR EDIT & DELETE                             -->
+    <!-- ============================================================ -->
+    <div id="custom-dialog-overlay" class="modal-overlay hidden" style="z-index: 9999;">
+        <div class="modal-content glass-premium" style="max-width: 400px; text-align: center; padding: 30px;">
+            <div style="font-size: 3rem; color: var(--corp-blue); margin-bottom: 15px;">
+                <i data-lucide="alert-triangle"></i>
+            </div>
+            <h2 id="custom-dialog-title" style="margin-bottom: 15px;">Confirmación</h2>
+            <p id="custom-dialog-message" style="margin-bottom: 25px; font-size: 1.1rem;">¿Estás seguro?</p>
+            
+            <input type="text" id="custom-dialog-input" class="hidden" style="width: 100%; padding: 10px; margin-bottom: 20px; border-radius: 8px; border: 1px solid #ccc; font-size: 1rem;" placeholder="...">
+            
+            <div style="display: flex; gap: 15px; justify-content: center;">
+                <button id="btn-dialog-cancel" class="btn-corporate" style="background: #6b7280;">CANCELAR</button>
+                <button id="btn-dialog-confirm" class="btn-corporate">ACEPTAR</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/app-db.js?v=2"></script>
+</body>
+</html>
