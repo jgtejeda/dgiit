@@ -1,6 +1,9 @@
 -- SGC PRO | Base de Datos MySQL
 -- Ejecutar este script para crear la base de datos y tablas
 
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+
 -- Crear base de datos
 CREATE DATABASE IF NOT EXISTS sgc_pro CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE sgc_pro;

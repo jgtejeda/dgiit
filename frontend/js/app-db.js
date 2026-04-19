@@ -4,154 +4,85 @@
  */
 
 // --- 1. CONSTANTS ---
-const API_BASE_URL = 'http://localhost:3000/api';
 
 let usersCache = [];
 let tasksCache = [];
 let logsCache = [];
-let currentUser = null;
-let currentTaskId = null; // Track open modal task
+let currentUser = JSON.parse(localStorage.getItem('sgc_user')) || null;
+let currentTaskId = null;
+let currentTaskAssignees = []; // Cache de responsables del modal activo
+
+// --- 0. SEGURIDAD (ANTI-XSS) ---
+function sanitizeHTML(str) {
+    if (!str) return '';
+    const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#x27;', '/': '&#x2F;' };
+    return str.replace(/[&<>"'/]/g, s => map[s]);
+}
 
 // --- 2. API CLIENT —BASE ---
 
-async function apiLogin(email, password) {
-    try {
-        const r = await fetch(`${API_BASE_URL}/login`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, password })
-        });
-        return await r.json();
-    } catch (e) { return { success: false, message: 'El servidor no responde. ¿Está encendido?' }; }
-}
+// --- 2. API WRAPPERS (DEPRECATED: Usamos apiClient) ---
+
+async function apiLogin(email, password) { return await apiClient.login(email, password); }
 
 async function apiGetUsers() {
-    try {
-        const r = await fetch(`${API_BASE_URL}/users?t=${Date.now()}`);
-        const d = await r.json();
-        if (d.success) usersCache = d.data;
-        return d;
-    } catch (e) { return { success: false, data: [] }; }
+    const d = await apiClient.getUsers();
+    if (d.success) usersCache = d.data;
+    return d;
 }
 
 async function apiGetTasks() {
-    try {
-        const r = await fetch(`${API_BASE_URL}/tasks?t=${Date.now()}`);
-        const d = await r.json();
-        if (d.success) tasksCache = d.data;
-        return d;
-    } catch (e) { return { success: false, data: [] }; }
+    const d = await apiClient.getTasks();
+    if (d.success) tasksCache = d.data;
+    return d;
 }
 
 async function apiGetLogs() {
-    try {
-        const r = await fetch(`${API_BASE_URL}/logs?t=${Date.now()}`);
-        const d = await r.json();
-        if (d.success) logsCache = d.data;
-        return d;
-    } catch (e) { return { success: false, data: [] }; }
+    const d = await apiClient.getLogs();
+    if (d.success) logsCache = d.data;
+    return d;
 }
 
 async function apiSaveLog(action) {
     if (!currentUser) return { success: false };
-    try {
-        const r = await fetch(`${API_BASE_URL}/logs`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user: currentUser.name, email: currentUser.email, role: currentUser.role, action })
-        });
-        return await r.json();
-    } catch (e) { return { success: false }; }
+    return await apiClient.saveLog({ user: currentUser.name, email: currentUser.email, role: currentUser.role, action });
 }
 
-async function apiCreateTask(taskData) {
-    try {
-        const r = await fetch(`${API_BASE_URL}/tasks`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(taskData)
-        });
-        return await r.json();
-    } catch (e) { return { success: false }; }
-}
-
-async function apiUpdateTask(id, taskData) {
-    try {
-        const r = await fetch(`${API_BASE_URL}/tasks/${id}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(taskData)
-        });
-        return await r.json();
-    } catch (e) { return { success: false }; }
-}
-
-async function apiDeleteTask(id) {
-    try {
-        const r = await fetch(`${API_BASE_URL}/tasks/${id}`, { method: 'DELETE' });
-        return await r.json();
-    } catch (e) { return { success: false }; }
-}
+async function apiCreateTask(taskData) { return await apiClient.createTask(taskData); }
+async function apiUpdateTask(id, taskData) { return await apiClient.updateTask(id, taskData); }
+async function apiDeleteTask(id) { return await apiClient.deleteTask(id); }
 
 // --- 3. TODOS API ---
-
-async function apiGetTodos(taskId) {
-    try {
-        const r = await fetch(`${API_BASE_URL}/tasks/${taskId}/todos?t=${Date.now()}`);
-        return await r.json();
-    } catch (e) { return { success: false, data: [] }; }
-}
-
-async function apiCreateTodo(taskId, label) {
-    try {
-        const r = await fetch(`${API_BASE_URL}/tasks/${taskId}/todos`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ label })
-        });
-        return await r.json();
-    } catch (e) { return { success: false }; }
-}
-
-async function apiToggleTodo(todoId, is_done) {
-    try {
-        const r = await fetch(`${API_BASE_URL}/todos/${todoId}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ is_done })
-        });
-        return await r.json();
-    } catch (e) { return { success: false }; }
-}
-
-async function apiDeleteTodo(todoId) {
-    try {
-        const r = await fetch(`${API_BASE_URL}/todos/${todoId}`, { method: 'DELETE' });
-        return await r.json();
-    } catch (e) { return { success: false }; }
-}
+async function apiGetTodos(taskId) { return await apiClient.getTodos(taskId); }
+async function apiCreateTodo(taskId, label, assignedTo = null) { return await apiClient.createTodo(taskId, label, assignedTo); }
+async function apiToggleTodo(todoId, isDone, assignedTo = undefined) { return await apiClient.toggleTodo(todoId, isDone, assignedTo); }
+async function apiDeleteTodo(todoId) { return await apiClient.deleteTodo(todoId); }
 
 // --- 4. COMMENTS API ---
-
-async function apiGetComments(taskId) {
-    try {
-        const r = await fetch(`${API_BASE_URL}/tasks/${taskId}/comments?t=${Date.now()}`);
-        return await r.json();
-    } catch (e) { return { success: false, data: [] }; }
-}
-
+async function apiGetComments(taskId) { return await apiClient.getComments(taskId); }
 async function apiCreateComment(taskId, content) {
-    try {
-        const r = await fetch(`${API_BASE_URL}/tasks/${taskId}/comments`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                author_name: currentUser.name, 
-                author_email: currentUser.email,
-                author_role: currentUser.role, 
-                content 
-            })
-        });
-        return await r.json();
-    } catch (e) { return { success: false }; }
+    return await apiClient.createComment(taskId, content, {
+        author_name: currentUser.name,
+        author_email: currentUser.email,
+        author_role: currentUser.role
+    });
 }
+
+// --- 4b. RESPONSABLES API ---
+async function apiGetAssignees(taskId) { return await apiClient.getAssignees(taskId); }
+async function apiAddAssignee(taskId, data) { return await apiClient.addAssignee(taskId, data); }
+async function apiRemoveAssignee(taskId, email) { return await apiClient.removeAssignee(taskId, email); }
 
 // --- 5. UTILITIES ---
 
 function refreshIcons() { if (window.lucide) window.lucide.createIcons(); }
+
+function getInitials(name) {
+    if (!name) return '?';
+    const parts = name.trim().split(' ');
+    if (parts.length === 1) return parts[0][0].toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
 function getProgressColor(pct) {
     if (pct === 0) return 'rgba(255,255,255,0.2)';
@@ -185,6 +116,16 @@ async function initAuth() {
     const errorMsg = document.getElementById('login-error');
     refreshIcons();
 
+    // Persistencia: Si ya hay sesión, intentar entrar directamente
+    if (currentUser && apiClient.getToken()) {
+        loginScreen.classList.add('hidden');
+        mainApp.classList.remove('hidden');
+        updateHeaderUI();
+        applyRBAC();
+        switchView('board-view');
+        apiSaveLog('Recuperación de sesión automática');
+    }
+
     loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const email = document.getElementById('login-email').value;
@@ -197,6 +138,14 @@ async function initAuth() {
             loginScreen.classList.add('hidden');
             mainApp.classList.remove('hidden');
             switchView('board-view');
+            delete result.user.password;
+            localStorage.setItem('sgc_user', JSON.stringify(result.user));
+            currentUser = result.user;
+            await apiSaveLog('Inicio de sesión exitoso');
+            updateHeaderUI();
+            applyRBAC();
+            switchView('board-view');
+            renderBoard();
         } else {
             errorMsg.classList.remove('hidden');
             errorMsg.innerText = result.message || 'Credenciales inválidas';
@@ -204,9 +153,36 @@ async function initAuth() {
     });
 
     document.getElementById('nav-logout').addEventListener('click', () => {
-        apiSaveLog('Cierre de sesión');
-        location.reload();
+        apiSaveLog('Cierre de sesión manual');
+        apiClient.clearSession();
     });
+
+    // Profile Trigger
+    document.getElementById('btn-open-profile')?.addEventListener('click', openProfileModal);
+
+    // Initial Header Load
+    if (currentUser) updateHeaderUI();
+}
+
+function updateHeaderUI() {
+    if (!currentUser) return;
+    
+    // Pill del header
+    document.getElementById('header-user-name').innerText = currentUser.name;
+    const avatar = document.getElementById('header-user-avatar');
+    if (currentUser.photo) {
+        avatar.innerHTML = `<img src="${currentUser.photo}" alt="Perfil">`;
+    } else {
+        avatar.innerHTML = getInitials(currentUser.name);
+    }
+
+    // Mensaje de bienvenida central
+    const titleDisp = document.getElementById('app-title-display');
+    if (currentUser.role === 'GOD') {
+        titleDisp.innerHTML = '<i data-lucide="crown"></i> MODO OMNISCIENTE';
+    } else {
+        titleDisp.innerText = `BIENVENIDO A DGIIT, ${currentUser.name.toUpperCase()}`;
+    }
 }
 
 function applyRBAC() {
@@ -215,13 +191,10 @@ function applyRBAC() {
     document.getElementById('nav-bitacora').classList.toggle('hidden', role !== 'GOD');
     document.getElementById('nav-users').classList.toggle('hidden', role === 'USER');
     document.getElementById('clear-archive')?.classList.toggle('hidden', role === 'USER');
-    if (role === 'GOD') {
-        body.classList.add('status-god');
-        document.getElementById('app-title-display').innerHTML = '<i data-lucide="crown"></i> MODO OMNISCIENTE';
-    } else {
-        body.classList.remove('status-god');
-        document.getElementById('app-title-display').innerText = `Bienvenido a DGIIT, ${currentUser.name}`;
-    }
+    
+    if (role === 'GOD') body.classList.add('status-god');
+    else body.classList.remove('status-god');
+
     refreshIcons();
 }
 
@@ -234,10 +207,10 @@ async function renderLogs() {
     if (result.success) {
         tbody.innerHTML = result.data.map(l => `
             <tr class="log-row-${l.role.toLowerCase()}">
-                <td>${l.created_at || l.time}</td>
-                <td><strong>${l.user_name || l.user}</strong></td>
-                <td><span class="role-badge">${l.role}</span></td>
-                <td>${l.action}</td>
+                <td>${sanitizeHTML(l.created_at || l.time)}</td>
+                <td><strong>${sanitizeHTML(l.user_name || l.user)}</strong></td>
+                <td><span class="role-badge">${sanitizeHTML(l.role)}</span></td>
+                <td>${sanitizeHTML(l.action)}</td>
             </tr>
         `).join('');
     }
@@ -249,20 +222,24 @@ async function renderUsersList() {
     const result = await apiGetUsers();
     if (result.success) {
         const visible = result.data.filter(u => currentUser.role === 'GOD' || u.role !== 'GOD');
-        list.innerHTML = visible.map(u => `
-            <li class="user-item">
-                <div class="u-info">
-                    <strong>${u.name}</strong>
-                    <small>${u.email}</small>
-                    <div class="u-meta"><span>${u.position || 'Sin cargo'}</span> | <span>${u.department || 'Sin dept'}</span></div>
-                </div>
-                <div class="u-actions">
-                    <span class="role-badge">${u.role}</span>
-                    <button type="button" onclick="event.stopPropagation(); editUser('${u.email}')" title="Editar"><i data-lucide="edit-2"></i></button>
-                    <button type="button" onclick="event.stopPropagation(); deleteUser('${u.id}')" title="Eliminar"><i data-lucide="trash-2"></i></button>
-                </div>
-            </li>
-        `).join('');
+        list.innerHTML = visible.map(u => {
+            const avatarInner = u.photo ? `<img src="${u.photo}" alt="${sanitizeHTML(u.name)}">` : getInitials(u.name);
+            return `
+                <li class="user-item">
+                    <div class="u-avatar-list">${avatarInner}</div>
+                    <div class="u-info">
+                        <strong>${sanitizeHTML(u.name)}</strong>
+                        <small>${sanitizeHTML(u.email)}</small>
+                        <div class="u-meta"><span>${sanitizeHTML(u.position || 'Sin cargo')}</span> | <span>${sanitizeHTML(u.department || 'Sin dept')}</span></div>
+                    </div>
+                    <div class="u-actions">
+                        <span class="role-badge">${sanitizeHTML(u.role)}</span>
+                        <button type="button" onclick="event.stopPropagation(); editUser('${u.email}')" title="Editar"><i data-lucide="edit-2"></i></button>
+                        <button type="button" onclick="event.stopPropagation(); deleteUser('${u.id}')" title="Eliminar"><i data-lucide="trash-2"></i></button>
+                    </div>
+                </li>
+            `;
+        }).join('');
     }
     refreshIcons();
 }
@@ -297,10 +274,10 @@ async function renderBoard() {
         card.innerHTML = `
             <div class="task-badge-row">
                 <span class="priority-tag priority-${task.priority || 'MEDIA'}">${task.priority || 'MEDIA'}</span>
-                <div class="assignee-box"><i data-lucide="user"></i> ${task.assignee || 'Sin asignar'}</div>
+                <div class="assignee-avatars">${renderAvatarChips(task.assignees || [])}</div>
             </div>
-            <h4>${task.title}</h4>
-            <p>${task.description || ''}</p>
+            <h4>${sanitizeHTML(task.title)}</h4>
+            <p>${sanitizeHTML(task.description || '')}</p>
 
             <!-- Progress Bar -->
             <div class="card-progress-wrap">
@@ -343,19 +320,10 @@ async function renderBoard() {
 
 window.openTaskModal = async (id = null, status = 'TODO') => {
     currentTaskId = id;
+    currentTaskAssignees = [];
     const modal = document.getElementById('task-modal');
     
-    // Switch to Tab 1
     switchModalTab('tab-info');
-
-    // Populate assignees
-    const usersResult = await apiGetUsers();
-    if (usersResult.success) {
-        document.getElementById('task-assignee').innerHTML = usersResult.data
-            .filter(u => u.role !== 'GOD')
-            .map(u => `<option value="${u.name}">${u.name} (${u.position || 'Sin cargo'})</option>`)
-            .join('');
-    }
 
     if (id) {
         const task = tasksCache.find(t => t.id === id);
@@ -363,7 +331,6 @@ window.openTaskModal = async (id = null, status = 'TODO') => {
         document.getElementById('task-id').value = task.id;
         document.getElementById('task-title').value = task.title;
         document.getElementById('task-desc').value = task.description || '';
-        document.getElementById('task-assignee').value = task.assignee || '';
 
         if (task.deadline) {
             const [d, t] = task.deadline.split('T');
@@ -377,39 +344,42 @@ window.openTaskModal = async (id = null, status = 'TODO') => {
         document.getElementById('task-priority').value = task.priority || 'MEDIA';
         document.getElementById('task-status').value = task.status;
 
-        // Load todos and comments in background
+        // Cargar responsables
+        document.getElementById('assignee-new-hint').classList.add('hidden');
+        document.getElementById('assignee-add-row').classList.remove('hidden');
+        await loadAssigneesInModal(id);
+
         loadTodosInModal(id);
         loadProgressTab(id, task);
 
-        // Show tabs content areas (not empty msgs)
         document.getElementById('todos-new-task-msg').classList.add('hidden');
         document.getElementById('todos-content').classList.remove('hidden');
         document.getElementById('progress-new-task-msg').classList.add('hidden');
         document.getElementById('progress-content').classList.remove('hidden');
-
     } else {
         document.getElementById('modal-task-title').innerText = 'Nueva Ficha de Proyecto';
         document.getElementById('task-form').reset();
         document.getElementById('task-id').value = '';
         document.getElementById('task-status').value = status;
-        document.getElementById('task-assignee').value = currentUser.name;
         if (window.fpDate) window.fpDate.clear();
         if (window.fpTime) window.fpTime.clear();
 
-        // Hide content, show hints for new tasks
+        // Mostrar hint para nueva ficha
+        document.getElementById('assignees-chips-container').innerHTML = '';
+        document.getElementById('assignee-new-hint').classList.remove('hidden');
+        document.getElementById('assignee-add-row').classList.add('hidden');
+
         document.getElementById('todos-new-task-msg').classList.remove('hidden');
         document.getElementById('todos-content').classList.add('hidden');
         document.getElementById('progress-new-task-msg').classList.remove('hidden');
         document.getElementById('progress-content').classList.add('hidden');
     }
 
-    // Role-based Input Lock (Usuarios Estándar no pueden modificar datos base de fichas creadas)
+    // Role-based Input Lock
     const isLockedForUser = (id && currentUser.role === 'USER');
     document.getElementById('task-title').disabled = isLockedForUser;
     document.getElementById('task-desc').disabled = isLockedForUser;
-    document.getElementById('task-assignee').disabled = isLockedForUser;
     
-    // Flatpickr instances need to act according to disabled state
     if (window.fpDate) {
         document.getElementById('task-deadline-date').disabled = isLockedForUser;
         isLockedForUser ? window.fpDate._input.setAttribute('disabled', 'disabled') : window.fpDate._input.removeAttribute('disabled');
@@ -422,12 +392,86 @@ window.openTaskModal = async (id = null, status = 'TODO') => {
     modal.classList.remove('hidden');
 };
 
+// ─── RESPONSABLES ───────────────────────────────────────────────────────────
+
+function renderAvatarChips(assignees) {
+    if (!assignees || assignees.length === 0) return `<span class="assignee-box-empty"><i data-lucide="user-x"></i> Sin asignar</span>`;
+    const max = 3;
+    let html = assignees.slice(0, max).map(a => {
+        const title = sanitizeHTML(a.user_name);
+        // a.photo ahora viene del servidor gracias al JOIN en server.js
+        const inner = a.photo ? `<img src="${a.photo}" alt="${title}">` : getInitials(a.user_name);
+        return `<span class="avatar-chip" title="${title}">${inner}</span>`;
+    }).join('');
+    if (assignees.length > max) html += `<span class="avatar-chip avatar-chip-more">+${assignees.length - max}</span>`;
+    return html;
+}
+
+async function loadAssigneesInModal(taskId) {
+    const result = await apiGetAssignees(taskId);
+    currentTaskAssignees = result.success ? result.data : [];
+    renderAssigneeChips(currentTaskAssignees);
+    populateAssigneePicker(currentTaskAssignees);
+    populateTodoAssigneePicker(currentTaskAssignees);
+}
+
+function renderAssigneeChips(assignees) {
+    const container = document.getElementById('assignees-chips-container');
+    if (assignees.length === 0) {
+        container.innerHTML = `<span class="no-assignees-hint">No hay responsables aún.</span>`;
+        return;
+    }
+    container.innerHTML = assignees.map(a => `
+        <span class="assignee-chip">
+            <span class="chip-avatar">${getInitials(a.user_name)}</span>
+            <span class="chip-name">${sanitizeHTML(a.user_name)}</span>
+            <button type="button" class="chip-remove" onclick="removeAssigneeChip('${a.user_email}')" title="Quitar responsable">×</button>
+        </span>
+    `).join('');
+}
+
+function populateAssigneePicker(currentAssignees) {
+    const picker = document.getElementById('assignee-picker');
+    const currentEmails = currentAssignees.map(a => a.user_email);
+    const available = usersCache.filter(u => u.role !== 'GOD' && !currentEmails.includes(u.email));
+    picker.innerHTML = `<option value="">+ Agregar responsable...</option>` +
+        available.map(u => `<option value="${u.email}" data-name="${u.name}">${u.name}</option>`).join('');
+}
+
+function populateTodoAssigneePicker(assignees) {
+    const picker = document.getElementById('new-todo-assignee');
+    if (!picker) return;
+    picker.innerHTML = `<option value="">Sin asignar</option>` +
+        assignees.map(a => `<option value="${a.user_name}">${a.user_name}</option>`).join('');
+}
+
+window.removeAssigneeChip = async (email) => {
+    if (!currentTaskId) return;
+    await apiRemoveAssignee(currentTaskId, email);
+    await loadAssigneesInModal(currentTaskId);
+    renderBoard();
+};
+
+// Evento: agregar responsable desde picker
+document.getElementById('assignee-picker')?.addEventListener('change', async function() {
+    const email = this.value;
+    if (!email || !currentTaskId) { this.value = ''; return; }
+    const opt = this.options[this.selectedIndex];
+    const name = opt.getAttribute('data-name') || opt.text;
+    await apiAddAssignee(currentTaskId, { user_name: name, user_email: email });
+    this.value = '';
+    await loadAssigneesInModal(currentTaskId);
+    renderBoard();
+});
+
 // Load todos into modal Tab 2
 async function loadTodosInModal(taskId) {
     const container = document.getElementById('todo-list-container');
     container.innerHTML = '<p class="loading-msg">Cargando etapas...</p>';
     const result = await apiGetTodos(taskId);
     renderTodos(result.success ? result.data : []);
+    // Refrescar picker de responsables en etapas
+    populateTodoAssigneePicker(currentTaskAssignees);
 }
 
 function renderTodos(todos) {
@@ -441,11 +485,19 @@ function renderTodos(todos) {
             <label class="todo-check-label">
                 <input type="checkbox" ${todo.is_done ? 'checked' : ''} 
                     onchange="handleTodoToggle(${todo.id}, this.checked)">
-                <span class="todo-label-text">${todo.label}</span>
+                <span class="todo-label-text">${sanitizeHTML(todo.label)}</span>
             </label>
-            <button class="btn-todo-delete" onclick="handleTodoDelete(${todo.id})">
-                <i data-lucide="trash-2"></i>
-            </button>
+            <div class="todo-meta">
+                <select class="todo-assignee-select" onchange="handleTodoReassign(${todo.id}, this.value)" title="Reasignar">
+                    <option value="" ${!todo.assigned_to ? 'selected' : ''}>Sin asignar</option>
+                    ${currentTaskAssignees.map(a =>
+                        `<option value="${a.user_name}" ${todo.assigned_to === a.user_name ? 'selected' : ''}>${a.user_name}</option>`
+                    ).join('')}
+                </select>
+                <button class="btn-todo-delete" onclick="handleTodoDelete(${todo.id})">
+                    <i data-lucide="trash-2"></i>
+                </button>
+            </div>
         </div>
     `).join('');
     refreshIcons();
@@ -454,8 +506,14 @@ function renderTodos(todos) {
 window.handleTodoToggle = async (todoId, isDone) => {
     await apiToggleTodo(todoId, isDone);
     await loadTodosInModal(currentTaskId);
-    // Update board counts without full reload
     renderBoard();
+};
+
+window.handleTodoReassign = async (todoId, assignedTo) => {
+    // Obtener estado actual de done para no perderlo
+    const r = await apiClient.request(`/todos/${todoId}`, {});
+    await apiClient.toggleTodo(todoId, false, assignedTo); // solo actualiza assigned_to
+    await loadTodosInModal(currentTaskId);
 };
 
 window.handleTodoDelete = async (todoId) => {
@@ -511,11 +569,11 @@ function renderComments(comments) {
         return `
             <div class="comment-item">
                 <div class="comment-header">
-                    <span class="comment-role-badge ${roleClass}">${c.author_role}</span>
-                    <strong class="comment-author">${c.author_name}</strong>
+                    <span class="comment-role-badge ${roleClass}">${sanitizeHTML(c.author_role)}</span>
+                    <strong class="comment-author">${sanitizeHTML(c.author_name)}</strong>
                     <span class="comment-date">${dateStr}</span>
                 </div>
-                <p class="comment-body">${c.content}</p>
+                <p class="comment-body">${sanitizeHTML(c.content)}</p>
             </div>
         `;
     }).join('');
@@ -609,6 +667,22 @@ document.getElementById('btn-save-progress').addEventListener('click', async () 
         document.getElementById('progress-display-value').innerText = `${finalPct}%`;
         document.getElementById('modal-progress-fill').style.width = `${finalPct}%`;
         document.getElementById('modal-progress-fill').style.background = getProgressColor(finalPct);
+        
+        // --- NOTIFICACIÓN VISUAL ---
+        const btn = document.getElementById('btn-save-progress');
+        if (btn) {
+            const originalText = btn.innerHTML;
+            btn.innerHTML = `<i data-lucide="check-circle"></i> ¡Guardado al ${finalPct}%!`;
+            btn.classList.add('btn-save-success');
+            if (window.lucide) window.lucide.createIcons();
+            
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.classList.remove('btn-save-success');
+                if (window.lucide) window.lucide.createIcons();
+            }, 3000);
+        }
+
         await apiSaveLog(`Actualizó progreso de "${task.title}" a ${finalPct}%`);
         renderBoard();
     }
@@ -618,10 +692,12 @@ document.getElementById('btn-save-progress').addEventListener('click', async () 
 document.getElementById('btn-add-todo').addEventListener('click', async () => {
     const input = document.getElementById('new-todo-input');
     const label = input.value.trim();
+    const assignedTo = document.getElementById('new-todo-assignee')?.value || null;
     if (!label || !currentTaskId) return;
-    const result = await apiCreateTodo(currentTaskId, label);
+    const result = await apiCreateTodo(currentTaskId, label, assignedTo || null);
     if (result.success) {
         input.value = '';
+        document.getElementById('new-todo-assignee').value = '';
         await loadTodosInModal(currentTaskId);
         renderBoard();
     }
@@ -643,6 +719,7 @@ document.getElementById('btn-add-comment').addEventListener('click', async () =>
         renderComments(commentsResult.success ? commentsResult.data : []);
         await apiSaveLog(`Dejó una nota en la ficha #${currentTaskId}`);
         renderBoard();
+        closeTaskModal();
     }
 });
 
@@ -699,10 +776,10 @@ async function renderArchive() {
         card.innerHTML = `
             <div class="task-badge-row">
                 <span class="priority-tag priority-${task.priority || 'MEDIA'}">${task.priority || 'MEDIA'}</span>
-                <div class="assignee-box"><i data-lucide="user"></i> ${task.assignee || 'Sin asignar'}</div>
+                <div class="assignee-box"><i data-lucide="user"></i> ${sanitizeHTML(task.assignee || 'Sin asignar')}</div>
             </div>
-            <h4>${task.title}</h4>
-            <p>${task.description || ''}</p>
+            <h4>${sanitizeHTML(task.title)}</h4>
+            <p>${sanitizeHTML(task.description || '')}</p>
             <div class="card-progress-wrap"><div class="card-progress-bar" style="width: 100%; background: #00e676;"></div></div>
             <div class="card-progress-label">100% completado</div>
             <div class="deadline-box">
@@ -772,10 +849,7 @@ window.editUser = async (email) => {
     const user = usersCache.find(u => u.email === email);
     const newPass = await window.customDialog('Cambiar Contraseña', `Ingresa la nueva contraseña para ${user.name}:`, true, 'Nueva contraseña...');
     if (newPass) {
-        await fetch(`${API_BASE_URL}/users/${user.id}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...user, password: newPass })
-        });
+        await apiClient.updateUser(user.id, { ...user, password: newPass });
         await apiSaveLog(`Cambió contraseña de usuario: ${user.email}`);
         renderUsersList();
     }
@@ -792,11 +866,7 @@ window.deleteUser = async (id) => {
         try {
             console.log('📡 Enviando petición DELETE...');
             const user = usersCache.find(u => u.id == id);
-            const response = await fetch(`${API_BASE_URL}/users/${id}`, { 
-                method: 'DELETE',
-                headers: { 'Cache-Control': 'no-cache' }
-            });
-            const result = await response.json();
+            const result = await apiClient.deleteUser(id);
             console.log('📥 Respuesta del servidor:', result);
             
             if (result.success) {
@@ -824,13 +894,23 @@ document.getElementById('user-create-form')?.addEventListener('submit', async (e
         department: document.getElementById('new-user-dept').value,
         role: document.getElementById('new-user-role').value
     };
-    await fetch(`${API_BASE_URL}/users`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newUser)
-    });
-    await apiSaveLog(`Creó usuario: ${newUser.name}`);
-    renderUsersList();
-    e.target.reset();
+    const result = await apiClient.createUser(newUser);
+    if (result.success) {
+        await apiSaveLog(`Creó usuario: ${newUser.name}`);
+        const btn = e.target.querySelector('button[type="submit"]');
+        const originalText = btn.innerText;
+        btn.innerText = '¡ACCESO CREADO!';
+        btn.classList.add('btn-save-success');
+        setTimeout(() => {
+            btn.innerText = originalText;
+            btn.classList.remove('btn-save-success');
+        }, 3000);
+        await apiGetUsers(); 
+        renderUsersList();
+        e.target.reset();
+    } else {
+        alert('Error: ' + (result.message || 'No se pudo crear el usuario'));
+    }
 });
 
 document.getElementById('clear-logs')?.addEventListener('click', async () => {
@@ -918,6 +998,162 @@ function initPickers() {
 document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => switchView(btn.getAttribute('data-view'))));
 document.getElementById('close-modal')?.addEventListener('click', closeTaskModal);
 document.querySelector('.btn-add-task-modal')?.addEventListener('click', () => openTaskModal());
+
+// --- 17. PROFILE MODAL LOGIC ---
+
+window.openProfileModal = () => {
+    if (!currentUser) return;
+    document.getElementById('profile-name').value = currentUser.name || '';
+    document.getElementById('profile-pos').value = currentUser.position || '';
+    document.getElementById('profile-dept').value = currentUser.department || '';
+    document.getElementById('profile-pass').value = '';
+    
+    updateProfilePreview(currentUser.photo);
+    document.getElementById('profile-modal').classList.remove('hidden');
+    refreshIcons();
+};
+
+window.closeProfileModal = () => {
+    document.getElementById('profile-modal').classList.add('hidden');
+};
+
+function updateProfilePreview(photoData) {
+    const preview = document.getElementById('profile-pic-preview');
+    if (photoData) {
+        preview.innerHTML = `<img src="${photoData}" alt="Preview">`;
+    } else {
+        preview.innerHTML = getInitials(currentUser.name);
+    }
+}
+
+// Image handling with compression
+document.getElementById('profile-photo-input')?.addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // Validar tipo
+    if (!file.type.startsWith('image/')) {
+        alert('Por favor selecciona un archivo de imagen válido.');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+            // Rezize using Canvas
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 400;
+            const MAX_HEIGHT = 400;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+                if (width > MAX_WIDTH) {
+                    height *= MAX_WIDTH / width;
+                    width = MAX_WIDTH;
+                }
+            } else {
+                if (height > MAX_HEIGHT) {
+                    width *= MAX_HEIGHT / height;
+                    height = MAX_HEIGHT;
+                }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            // Get compressed Base64
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.8);
+            updateProfilePreview(compressedBase64);
+            window.tempProfilePhoto = compressedBase64; 
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+});
+
+document.getElementById('profile-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = e.target.querySelector('button[type="submit"]');
+    const originalText = btn.innerText;
+
+    const profileData = {
+        name: document.getElementById('profile-name').value,
+        position: document.getElementById('profile-pos').value,
+        department: document.getElementById('profile-dept').value,
+        photo: window.tempProfilePhoto || currentUser.photo
+    };
+
+    const pass = document.getElementById('profile-pass').value;
+    if (pass) profileData.password = pass;
+
+    btn.innerText = 'GUARDANDO...';
+    btn.disabled = true;
+
+    try {
+        const result = await apiClient.updateProfile(profileData);
+        
+        if (result.success) {
+            // Actualizar currentUser localmente
+            currentUser = { ...currentUser, ...profileData };
+            delete currentUser.password;
+            try {
+                localStorage.setItem('sgc_user', JSON.stringify(currentUser));
+            } catch(lsError) {
+                console.warn('LocalStorage lleno, no se guardó la sesión local');
+            }
+            
+            await apiSaveLog('Actualizó su ficha de perfil');
+            
+            btn.innerText = '¡DATOS GUARDADOS!';
+            btn.classList.add('btn-save-success');
+            
+            updateHeaderUI();
+            renderBoard();
+
+            setTimeout(() => {
+                closeProfileModal();
+                btn.innerText = originalText;
+                btn.disabled = false;
+                btn.classList.remove('btn-save-success');
+                window.tempProfilePhoto = null;
+            }, 1500);
+        } else {
+            console.error('Error del servidor:', result);
+            alert('El servidor rechazó el cambio: ' + (result.message || 'Error desconocido. Posiblemente la imagen es muy grande para la red.'));
+            btn.innerText = originalText;
+            btn.disabled = false;
+        }
+    } catch(err) {
+        console.error('Error de red/petición:', err);
+        alert('Error de conexión al intentar guardar. Revisa tu internet o el tamaño de la foto.');
+        btn.innerText = originalText;
+        btn.disabled = false;
+    }
+});
+
+document.getElementById('close-profile-modal')?.addEventListener('click', closeProfileModal);
+
+// ESC KEY TO CLOSE MODALS
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const openModals = document.querySelectorAll('.modal-overlay:not(.hidden)');
+        openModals.forEach(modal => {
+            if (modal.id === 'custom-dialog-overlay') {
+                document.getElementById('btn-dialog-cancel')?.click();
+            } else if (modal.id === 'task-modal') {
+                window.closeTaskModal();
+            } else if (modal.id === 'profile-modal') {
+                window.closeProfileModal();
+            } else {
+                modal.classList.add('hidden');
+            }
+        });
+    }
+});
 
 // INIT
 document.addEventListener('DOMContentLoaded', () => {

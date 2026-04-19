@@ -97,6 +97,10 @@
                 <div class="weather-widget glass-pill">
                     <i data-lucide="cloud" class="w-icon"></i><span class="w-temp">24°C</span>
                 </div>
+                <div class="user-profile-trigger" id="btn-open-profile" title="Mi Perfil">
+                    <div id="header-user-avatar" class="avatar-chip"></div>
+                    <span id="header-user-name" class="header-user-name"></span>
+                </div>
                 <button class="btn-logout-header" id="nav-logout" title="Cerrar Sesión">
                     <i data-lucide="log-out"></i>
                 </button>
@@ -152,17 +156,53 @@
                     <div class="mgmt-grid">
                         <div class="mgmt-form glass-pill">
                             <h3>Registrar Nuevo Operativo</h3>
-                            <form id="user-create-form">
-                                <input type="text" id="new-user-name" placeholder="Nombre completo" required>
-                                <input type="email" id="new-user-email" placeholder="Email corporativo" required>
-                                <input type="password" id="new-user-pass" placeholder="Password inicial" required>
-                                <input type="text" id="new-user-pos" placeholder="Cargo / Puesto" required>
-                                <input type="text" id="new-user-dept" placeholder="Dirección / Departamento" required>
-                                <select id="new-user-role">
-                                    <option value="USER">Usuario Estándar</option>
-                                    <option value="ADMIN">Administrador</option>
-                                </select>
-                                <button type="submit" class="btn-corporate">CREAR ACCESO</button>
+                            <form id="user-create-form" autocomplete="off">
+                                <div class="corp-input-group">
+                                    <label>Nombre Completo</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="user"></i>
+                                        <input type="text" id="new-user-name" placeholder="Ej: Juan Pérez" required autocomplete="name">
+                                    </div>
+                                </div>
+                                <div class="corp-input-group">
+                                    <label>Correo Electrónico</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="mail"></i>
+                                        <input type="email" id="new-user-email" placeholder="email@guanajuato.gob.mx" required autocomplete="email">
+                                    </div>
+                                </div>
+                                <div class="corp-input-group">
+                                    <label>Contraseña Inicial</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="key"></i>
+                                        <input type="password" id="new-user-pass" placeholder="Mínimo 8 caracteres" required autocomplete="new-password">
+                                    </div>
+                                </div>
+                                <div class="corp-input-group">
+                                    <label>Cargo / Puesto</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="briefcase"></i>
+                                        <input type="text" id="new-user-pos" placeholder="Ej: Director de Área" required>
+                                    </div>
+                                </div>
+                                <div class="corp-input-group">
+                                    <label>Dirección / Departamento</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="building"></i>
+                                        <input type="text" id="new-user-dept" placeholder="Ej: Inteligencia Turística" required>
+                                    </div>
+                                </div>
+                                <div class="corp-input-group">
+                                    <label>Nivel de Acceso</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="shield"></i>
+                                        <select id="new-user-role">
+                                            <option value="USER" selected>Usuario Estándar</option>
+                                            <option value="ADMIN">Administrador</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn-corporate" style="margin-top: 10px;">CREAR ACCESO</button>
                             </form>
                         </div>
                         <div class="mgmt-list glass-pill">
@@ -222,11 +262,18 @@
                             <label>Título de la Tarea</label>
                             <input type="text" id="task-title" placeholder="Ej: Análisis de Datos" required>
                         </div>
-                        <div class="input-box">
-                            <label>Responsable</label>
-                            <select id="task-assignee" required>
-                                <!-- Dynamically populated -->
-                            </select>
+                    </div>
+                    <!-- Responsables multi-chip -->
+                    <div class="form-row">
+                        <div class="input-box full-width">
+                            <label>Responsables de la Ficha</label>
+                            <div id="assignees-chips-container" class="assignees-chips-wrap"></div>
+                            <div id="assignee-add-row" class="assignee-add-row">
+                                <select id="assignee-picker">
+                                    <option value="">+ Agregar responsable...</option>
+                                </select>
+                            </div>
+                            <p class="new-task-hint hidden" id="assignee-new-hint"><i data-lucide="info"></i> Guarda la ficha primero para agregar responsables.</p>
                         </div>
                     </div>
                     <div class="form-row">
@@ -278,7 +325,10 @@
                 <div id="todos-content">
                     <!-- Add new todo -->
                     <div class="todo-add-row">
-                        <input type="text" id="new-todo-input" placeholder="Escribir nueva etapa o paso...">
+                        <input type="text" id="new-todo-input" placeholder="Nueva etapa o paso...">
+                        <select id="new-todo-assignee" title="Asignar responsable">
+                            <option value="">Sin asignar</option>
+                        </select>
                         <button id="btn-add-todo" class="btn-todo-add"><i data-lucide="plus-circle"></i> Añadir</button>
                     </div>
                     <!-- Todo list -->
@@ -356,7 +406,68 @@
         </div>
     </div>
 
+    <!-- ===== MODAL: MI PERFIL ===== -->
+    <div id="profile-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-premium animate-fade-in" style="width: 500px;">
+            <div class="modal-header-row">
+                <h2 id="modal-profile-title"><i data-lucide="user-cog"></i> Mi Perfil</h2>
+                <button class="btn-close-modal" id="close-profile-modal"><i data-lucide="x"></i></button>
+            </div>
+            
+            <form id="profile-form" autocomplete="off">
+                <div class="profile-pic-container">
+                    <div id="profile-pic-preview" class="profile-pic-preview">
+                        <!-- Initial letters or img -->
+                    </div>
+                    <label for="profile-photo-input" class="btn-todo-add" style="margin-top: 10px; cursor: pointer;">
+                        <i data-lucide="camera"></i> CAMBIAR FOTO
+                    </label>
+                    <input type="file" id="profile-photo-input" accept="image/*" class="hidden">
+                    <p class="progress-hint">Click para subir una foto cuadrada (JPG/PNG)</p>
+                </div>
+
+                <div class="form-row">
+                    <div class="corp-input-group">
+                        <label>Nombre Completo</label>
+                        <div class="corp-field">
+                            <i data-lucide="user"></i>
+                            <input type="text" id="profile-name" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="corp-input-group">
+                        <label>Cargo / Puesto</label>
+                        <div class="corp-field">
+                            <i data-lucide="briefcase"></i>
+                            <input type="text" id="profile-pos" required>
+                        </div>
+                    </div>
+                    <div class="corp-input-group">
+                        <label>Dirección / Depto.</label>
+                        <div class="corp-field">
+                            <i data-lucide="building"></i>
+                            <input type="text" id="profile-dept" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="corp-input-group">
+                    <label>Nueva Contraseña (Opcional)</label>
+                    <div class="corp-field">
+                        <i data-lucide="key"></i>
+                        <input type="password" id="profile-pass" placeholder="Dejar en blanco para no cambiar">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-corporate" style="margin-top: 20px;">GUARDAR CAMBIOS</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Scripts -->
-    <script src="js/app-db.js?v=2"></script>
+    <script src="js/api-client.js?v=8"></script>
+    <script src="js/app-db.js?v=8"></script>
 </body>
 </html>

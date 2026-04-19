@@ -10,6 +10,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const { sendEmail } = require('./utils/mailer');
 
 const app = express();
@@ -19,14 +20,52 @@ const PORT = process.env.PORT || 3000;
 process.on('uncaughtException', (err) => { console.error('❌ EXCEPCIÓN NO CONTROLADA:', err); });
 process.on('unhandledRejection', (reason) => { console.error('⚠️ RECHAZO NO CONTROLADO:', reason); });
 
-app.use(helmet());
-app.use(cors());
-app.use(express.json());
+const JWT_SECRET = process.env.JWT_SECRET || 'secret-key-fallback';
+
+// Middleware: Verificar Token JWT
+const verifyToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.status(401).json({ success: false, message: 'Acceso denegado: Token no proporcionado' });
+
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) return res.status(401).json({ success: false, message: 'Sesión expirada o token inválido' });
+        req.user = decoded;
+        next();
+    });
+};
+
+// Middleware: Verificar Roles
+const checkRole = (roles) => (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+        return res.status(403).json({ success: false, message: 'Permisos insuficientes para esta acción' });
+    }
+    next();
+};
+
+app.set('trust proxy', 1);
+
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+            "img-src": ["'self'", "data:", "https://*"],
+        },
+    },
+}));
+
+app.use(cors({
+    origin: true, // Reflejar origen de la petición
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+}));
+
+app.use(express.json({ limit: '10mb' }));
 
 // Limitación de peticiones para seguridad
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
-    max: 100, // Máximo 100 peticiones por ventana
+    max: 2000, // Máximo 2000 peticiones por ventana
     message: { success: false, message: 'Demasiadas peticiones desde esta IP, por favor intenta más tarde.' }
 });
 app.use('/api/', limiter);
@@ -80,15 +119,45 @@ async function runMigrations(conn) {
             content TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+        // ─── Multi-Responsables ───────────────────────────────────────────
+        `CREATE TABLE IF NOT EXISTS task_assignees (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            task_id INT NOT NULL,
+            user_name VARCHAR(100) NOT NULL,
+            user_email VARCHAR(100),
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+            UNIQUE KEY unique_task_user (task_id, user_email)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+        `ALTER TABLE task_todos ADD COLUMN assigned_to VARCHAR(100) DEFAULT NULL`,
+        // Migrar responsable único existente a la nueva tabla
+        `INSERT IGNORE INTO task_assignees (task_id, user_name, user_email)
+            SELECT t.id, t.assignee, u.email
+            FROM tasks t
+            LEFT JOIN users u ON u.name = t.assignee
+            WHERE t.assignee IS NOT NULL AND t.assignee != ''`,
+        `ALTER TABLE users ADD COLUMN photo LONGTEXT DEFAULT NULL`
     ];
     for (const sql of migrations) {
         try {
             await conn.query(sql);
         } catch (e) {
-            if (e.code !== 'ER_DUP_FIELDNAME') console.warn('⚙️  Migración (omitida o ya aplicada):', e.message.substring(0, 60));
+            if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_DUP_KEYNAME') {
+                console.warn('⚙️  Migración (omitida o ya aplicada):', e.message.substring(0, 60));
+            }
         }
     }
+
+    // Asegurar columna photo de forma independiente
+    try {
+        await conn.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS photo LONGTEXT');
+        console.log('✅ Base de datos lista para recibir fotos.');
+    } catch (e) {
+        // Silencioso si ya existe, pero loguear si es otro error
+        if (e.code !== 'ER_DUP_FIELDNAME') console.error('❌ Error asegurando columna photo:', e.message);
+    }
+
     console.log('⚙️  Migraciones verificadas correctamente.');
 }
 
@@ -264,7 +333,7 @@ app.post('/api/login', async (req, res) => {
     try {
         const { email, password } = req.body;
         const [rows] = await pool.query(
-            'SELECT id, email, name, role, position, department, password FROM users WHERE email = ?',
+            'SELECT id, email, name, role, position, department, password, photo FROM users WHERE email = ?',
             [email]
         );
 
@@ -294,7 +363,15 @@ app.post('/api/login', async (req, res) => {
 
                 // Limpiar password antes de responder
                 delete user.password;
-                res.json({ success: true, user });
+
+                // Generar Token JWT (6 horas)
+                const token = jwt.sign(
+                    { id: user.id, email: user.email, role: user.role },
+                    JWT_SECRET,
+                    { expiresIn: '6h' }
+                );
+
+                res.json({ success: true, user, token });
             } else {
                 res.status(401).json({ success: false, message: 'Credenciales inválidas' });
             }
@@ -311,16 +388,16 @@ app.post('/api/login', async (req, res) => {
 // USUARIOS
 // ============================================
 
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT id, email, name, role, position, department FROM users ORDER BY id DESC');
+        const [rows] = await pool.query('SELECT id, email, name, role, position, department, photo FROM users ORDER BY id DESC');
         res.json({ success: true, data: rows });
     } catch (error) {
         res.status(500).json({ success: false, message: 'Error del servidor' });
     }
 });
 
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
     try {
         const { email, password, name, role, position, department } = req.body;
         
@@ -338,21 +415,68 @@ app.post('/api/users', async (req, res) => {
     }
 });
 
-app.put('/api/users/:id', async (req, res) => {
+app.put('/api/users/:id', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { email, name, role, position, department } = req.body;
-        await pool.query(
-            'UPDATE users SET email = ?, name = ?, role = ?, position = ?, department = ? WHERE id = ?',
-            [email, name, role, position, department, id]
-        );
+        const { email, name, role, position, department, password, photo } = req.body;
+        
+        // Solo ADMIN/GOD pueden editar a otros. Los usuarios normales solo pueden editarse a sí mismos (vía /api/profile).
+        if (req.user.role === 'USER' && req.user.id != id) {
+            return res.status(403).json({ success: false, message: 'No tienes permiso para editar este perfil' });
+        }
+
+        if (password) {
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(password, salt);
+            await pool.query(
+                'UPDATE users SET email = ?, name = ?, role = ?, position = ?, department = ?, password = ?, photo = ? WHERE id = ?',
+                [email, name, role, position, department, hashedPassword, photo || null, id]
+            );
+        } else {
+            await pool.query(
+                'UPDATE users SET email = ?, name = ?, role = ?, position = ?, department = ?, photo = ? WHERE id = ?',
+                [email, name, role, position, department, photo || null, id]
+            );
+        }
         res.json({ success: true });
     } catch (error) {
+        console.error('Error actualizando usuario:', error);
         res.status(500).json({ success: false, message: 'Error del servidor' });
     }
 });
 
-app.delete('/api/users/:id', async (req, res) => {
+// NUEVO: Perfil Propio (Self-Update)
+app.put('/api/profile', verifyToken, async (req, res) => {
+    console.log('📬 Petición recibida en /api/profile');
+    try {
+        const { name, position, department, password, photo } = req.body;
+        const userEmail = req.user.email;
+
+        if (photo) {
+            console.log(`📸 Recibiendo foto para ${userEmail}. Tamaño: ${photo.length} bytes`);
+        }
+
+        if (password) {
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(password, salt);
+            await pool.query(
+                'UPDATE users SET name = ?, position = ?, department = ?, password = ?, photo = ? WHERE email = ?',
+                [name, position, department, hashedPassword, photo || null, userEmail]
+            );
+        } else {
+            await pool.query(
+                'UPDATE users SET name = ?, position = ?, department = ?, photo = ? WHERE email = ?',
+                [name, position, department, photo || null, userEmail]
+            );
+        }
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error actualizando perfil:', error);
+        res.status(500).json({ success: false, message: 'Error del servidor' });
+    }
+});
+
+app.delete('/api/users/:id', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
     try {
         await pool.query('DELETE FROM users WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -365,23 +489,50 @@ app.delete('/api/users/:id', async (req, res) => {
 // TAREAS
 // ============================================
 
-app.get('/api/tasks', async (req, res) => {
+app.get('/api/tasks', verifyToken, async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM tasks ORDER BY priority DESC, deadline ASC');
-        // Enriquecer con conteos de etapas y comentarios
-        for (const task of rows) {
-            const [[todoCounts]] = await pool.query(
-                'SELECT COUNT(*) as total, IFNULL(SUM(is_done), 0) as done FROM task_todos WHERE task_id = ?',
-                [task.id]
+
+        // Enriquecer en bulk para evitar N+1 queries
+        if (rows.length > 0) {
+            const taskIds = rows.map(t => t.id);
+
+            const [todoCounts] = await pool.query(
+                `SELECT task_id, COUNT(*) as total, IFNULL(SUM(is_done),0) as done
+                 FROM task_todos WHERE task_id IN (?) GROUP BY task_id`, [taskIds]
             );
-            const [[commentCounts]] = await pool.query(
-                'SELECT COUNT(*) as cnt FROM task_comments WHERE task_id = ?',
-                [task.id]
+            const [commentCounts] = await pool.query(
+                `SELECT task_id, COUNT(*) as cnt FROM task_comments
+                 WHERE task_id IN (?) GROUP BY task_id`, [taskIds]
             );
-            task.todos_total = parseInt(todoCounts.total) || 0;
-            task.todos_done = parseInt(todoCounts.done) || 0;
-            task.comments_count = parseInt(commentCounts.cnt) || 0;
+            const [allAssignees] = await pool.query(
+                `SELECT ta.task_id, ta.user_name, ta.user_email, u.photo 
+                 FROM task_assignees ta
+                 LEFT JOIN users u ON u.email = ta.user_email
+                 WHERE ta.task_id IN (?) ORDER BY ta.added_at ASC`, [taskIds]
+            );
+
+            const todoMap = {}; todoCounts.forEach(r => { todoMap[r.task_id] = r; });
+            const commentMap = {}; commentCounts.forEach(r => { commentMap[r.task_id] = r; });
+            const assigneeMap = {}; allAssignees.forEach(a => {
+                if (!assigneeMap[a.task_id]) assigneeMap[a.task_id] = [];
+                assigneeMap[a.task_id].push({ 
+                    user_name: a.user_name, 
+                    user_email: a.user_email,
+                    photo: a.photo // Añadir la foto aquí para que aparezca en el tablero
+                });
+            });
+
+            rows.forEach(task => {
+                const tc = todoMap[task.id] || { total: 0, done: 0 };
+                const cc = commentMap[task.id] || { cnt: 0 };
+                task.todos_total    = parseInt(tc.total) || 0;
+                task.todos_done     = parseInt(tc.done)  || 0;
+                task.comments_count = parseInt(cc.cnt)   || 0;
+                task.assignees      = assigneeMap[task.id] || [];
+            });
         }
+
         res.json({ success: true, data: rows });
     } catch (error) {
         console.error('Error obteniendo tareas:', error);
@@ -389,7 +540,7 @@ app.get('/api/tasks', async (req, res) => {
     }
 });
 
-app.post('/api/tasks', async (req, res) => {
+app.post('/api/tasks', verifyToken, async (req, res) => {
     try {
         const { title, description, status = 'TODO', assignee, deadline, priority = 'MEDIA', author_email } = req.body;
         const formattedDate = formatMySQLDate(deadline);
@@ -409,7 +560,7 @@ app.post('/api/tasks', async (req, res) => {
     }
 });
 
-app.put('/api/tasks/:id', async (req, res) => {
+app.put('/api/tasks/:id', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
         const {
@@ -436,7 +587,7 @@ app.put('/api/tasks/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/tasks/:id', async (req, res) => {
+app.delete('/api/tasks/:id', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
     try {
         await pool.query('DELETE FROM tasks WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -449,7 +600,7 @@ app.delete('/api/tasks/:id', async (req, res) => {
 // ETAPAS (TODOS)
 // ============================================
 
-app.get('/api/tasks/:id/todos', async (req, res) => {
+app.get('/api/tasks/:id/todos', verifyToken, async (req, res) => {
     try {
         const [rows] = await pool.query(
             'SELECT * FROM task_todos WHERE task_id = ? ORDER BY id ASC',
@@ -459,26 +610,68 @@ app.get('/api/tasks/:id/todos', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false }); }
 });
 
-app.post('/api/tasks/:id/todos', async (req, res) => {
+app.post('/api/tasks/:id/todos', verifyToken, async (req, res) => {
     try {
-        const { label } = req.body;
+        const { label, assigned_to } = req.body;
         const [result] = await pool.query(
-            'INSERT INTO task_todos (task_id, label) VALUES (?, ?)',
-            [req.params.id, label]
+            'INSERT INTO task_todos (task_id, label, assigned_to) VALUES (?, ?, ?)',
+            [req.params.id, label, assigned_to || null]
         );
         res.json({ success: true, id: result.insertId });
     } catch (e) { res.status(500).json({ success: false }); }
 });
 
-app.put('/api/todos/:id', async (req, res) => {
+app.put('/api/todos/:id', verifyToken, async (req, res) => {
     try {
-        const { is_done } = req.body;
-        await pool.query('UPDATE task_todos SET is_done = ? WHERE id = ?', [is_done ? 1 : 0, req.params.id]);
+        const { is_done, assigned_to } = req.body;
+        if (assigned_to !== undefined) {
+            await pool.query(
+                'UPDATE task_todos SET is_done = ?, assigned_to = ? WHERE id = ?',
+                [is_done ? 1 : 0, assigned_to || null, req.params.id]
+            );
+        } else {
+            await pool.query('UPDATE task_todos SET is_done = ? WHERE id = ?', [is_done ? 1 : 0, req.params.id]);
+        }
         res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false }); }
 });
 
-app.delete('/api/todos/:id', async (req, res) => {
+// ============================================
+// RESPONSABLES (MULTI-ASSIGNEE)
+// ============================================
+
+app.get('/api/tasks/:id/assignees', verifyToken, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM task_assignees WHERE task_id = ? ORDER BY added_at ASC',
+            [req.params.id]
+        );
+        res.json({ success: true, data: rows });
+    } catch (e) { res.status(500).json({ success: false }); }
+});
+
+app.post('/api/tasks/:id/assignees', verifyToken, async (req, res) => {
+    try {
+        const { user_name, user_email } = req.body;
+        await pool.query(
+            'INSERT IGNORE INTO task_assignees (task_id, user_name, user_email) VALUES (?, ?, ?)',
+            [req.params.id, user_name, user_email || null]
+        );
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false }); }
+});
+
+app.delete('/api/tasks/:id/assignees/:email', verifyToken, async (req, res) => {
+    try {
+        await pool.query(
+            'DELETE FROM task_assignees WHERE task_id = ? AND user_email = ?',
+            [req.params.id, req.params.email]
+        );
+        res.json({ success: true });
+    } catch (e) { res.status(500).json({ success: false }); }
+});
+
+app.delete('/api/todos/:id', verifyToken, async (req, res) => {
     try {
         await pool.query('DELETE FROM task_todos WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -489,7 +682,7 @@ app.delete('/api/todos/:id', async (req, res) => {
 // RETROALIMENTACIÓN (COMMENTS)
 // ============================================
 
-app.get('/api/tasks/:id/comments', async (req, res) => {
+app.get('/api/tasks/:id/comments', verifyToken, async (req, res) => {
     try {
         const [rows] = await pool.query(
             'SELECT * FROM task_comments WHERE task_id = ? ORDER BY created_at ASC',
@@ -499,7 +692,7 @@ app.get('/api/tasks/:id/comments', async (req, res) => {
     } catch (e) { res.status(500).json({ success: false }); }
 });
 
-app.post('/api/tasks/:id/comments', async (req, res) => {
+app.post('/api/tasks/:id/comments', verifyToken, async (req, res) => {
     try {
         const { author_name, author_role, content, author_email } = req.body;
         const [result] = await pool.query(
@@ -518,7 +711,7 @@ app.post('/api/tasks/:id/comments', async (req, res) => {
 // LOGS
 // ============================================
 
-app.get('/api/logs', async (req, res) => {
+app.get('/api/logs', verifyToken, checkRole(['GOD']), async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM logs ORDER BY id DESC LIMIT 500');
         res.json({ success: true, data: rows });
@@ -527,7 +720,7 @@ app.get('/api/logs', async (req, res) => {
     }
 });
 
-app.post('/api/logs', async (req, res) => {
+app.post('/api/logs', verifyToken, async (req, res) => {
     try {
         const { user, email, role, action } = req.body;
         const [result] = await pool.query(
