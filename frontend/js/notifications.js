@@ -22,6 +22,7 @@ function urlBase64ToUint8Array(base64String) {
  * Inicializa el estado de las notificaciones en la UI
  */
 async function initPushNotificationUI() {
+    console.log('🔔 Inicializando UI de Notificaciones...');
     const btn = document.getElementById('btn-toggle-push');
     const msg = document.getElementById('push-status-msg');
     if (!btn || !msg) return;
@@ -32,19 +33,24 @@ async function initPushNotificationUI() {
         return;
     }
 
-    const registration = await navigator.serviceWorker.ready;
-    const subscription = await registration.pushManager.getSubscription();
-
-    if (subscription) {
-        btn.innerText = 'DESACTIVAR';
-        btn.style.background = 'rgba(255, 50, 50, 0.2)';
-        btn.style.color = '#ff5555';
-        msg.innerText = 'Notificaciones activas en este dispositivo ✅';
-    } else {
-        btn.innerText = 'ACTIVAR';
-        btn.style.background = '';
-        btn.style.color = '';
-        msg.innerText = 'Las notificaciones están desactivadas.';
+    try {
+        // No bloquear la UI si el SW tarda en responder
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        
+        if (subscription) {
+            btn.innerText = 'DESACTIVAR';
+            btn.style.background = 'rgba(255, 50, 50, 0.2)';
+            btn.style.color = '#ff5555';
+            msg.innerText = 'Notificaciones activas en este dispositivo ✅';
+        } else {
+            btn.innerText = 'ACTIVAR';
+            btn.style.background = '';
+            btn.style.color = '';
+            msg.innerText = 'Las notificaciones están desactivadas.';
+        }
+    } catch (err) {
+        console.warn('Error al verificar suscripción:', err);
     }
 }
 
