@@ -99,12 +99,53 @@ function switchView(viewId) {
     if (view) view.classList.remove('hidden');
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     const activeBtn = document.querySelector(`[data-view="${viewId}"]`);
-    if (activeBtn) activeBtn.classList.add('active');
+    if (activeBtn) {
+        activeBtn.classList.add('active');
+        updateNavSlider(activeBtn);
+    }
     if (viewId === 'bitacora-view') renderLogs();
     if (viewId === 'user-mgmt-view') renderUsersList();
     if (viewId === 'board-view') renderBoard();
     if (viewId === 'archive-view') renderArchive();
     refreshIcons();
+}
+
+/**
+ * Lógica del Slider Fluido (Fluid Slider)
+ */
+function updateNavSlider(activeBtn) {
+    const slider = document.getElementById('nav-slider');
+    if (!slider || !activeBtn) return;
+    
+    // El slider ya tiene la transición cubic-bezier en CSS
+    slider.style.width = `${activeBtn.offsetWidth}px`;
+    slider.style.left = `${activeBtn.offsetLeft}px`;
+}
+
+function initThemeToggle() {
+    const themeBtn = document.getElementById('theme-toggle');
+    const themeIcon = document.getElementById('theme-icon');
+    if (!themeBtn) return;
+
+    // Cargar preferencia guardada
+    const currentTheme = localStorage.getItem('sgc_theme') || 'dark';
+    if (currentTheme === 'dark') {
+        document.body.classList.add('dark-mode');
+        themeIcon.setAttribute('data-lucide', 'sun');
+    } else {
+        document.body.classList.remove('dark-mode');
+        themeIcon.setAttribute('data-lucide', 'moon');
+    }
+    refreshIcons();
+
+    themeBtn.addEventListener('click', () => {
+        const isDark = document.body.classList.toggle('dark-mode');
+        localStorage.setItem('sgc_theme', isDark ? 'dark' : 'light');
+        
+        // Cambiar icono dinámicamente
+        themeIcon.setAttribute('data-lucide', isDark ? 'sun' : 'moon');
+        refreshIcons();
+    });
 }
 
 // --- 7. AUTHENTICATION ---
@@ -120,6 +161,7 @@ async function initAuth() {
     if (currentUser && apiClient.getToken()) {
         loginScreen.classList.add('hidden');
         mainApp.classList.remove('hidden');
+        // document.getElementById('data-scene')?.classList.add('hidden-app'); /* Removido para mantener el fondo en el dashboard */
         updateHeaderUI();
         applyRBAC();
         switchView('board-view');
@@ -137,6 +179,7 @@ async function initAuth() {
             applyRBAC();
             loginScreen.classList.add('hidden');
             mainApp.classList.remove('hidden');
+            // document.getElementById('data-scene')?.classList.add('hidden-app'); /* Removido para mantener el fondo en el dashboard */
             switchView('board-view');
             delete result.user.password;
             localStorage.setItem('sgc_user', JSON.stringify(result.user));
@@ -154,6 +197,7 @@ async function initAuth() {
 
     document.getElementById('nav-logout').addEventListener('click', () => {
         apiSaveLog('Cierre de sesión manual');
+        document.getElementById('data-scene')?.classList.remove('hidden-app');
         apiClient.clearSession();
     });
 
@@ -162,7 +206,21 @@ async function initAuth() {
 
     // Initial Header Load
     if (currentUser) updateHeaderUI();
+
+    // Inicializar slider y tema
+    initThemeToggle();
+    // Ajustar slider al inicio diferido para asegurar que el offsetWidth sea correcto
+    setTimeout(() => {
+        const activeBtn = document.querySelector('.nav-btn.active');
+        if (activeBtn) updateNavSlider(activeBtn);
+    }, 500);
 }
+
+// Escuchar cambios de tamaño de ventana para ajustar el slider
+window.addEventListener('resize', () => {
+    const activeBtn = document.querySelector('.nav-btn.active');
+    if (activeBtn) updateNavSlider(activeBtn);
+});
 
 function updateHeaderUI() {
     if (!currentUser) return;
@@ -972,7 +1030,7 @@ function initParallax() {
         const ty = (e.clientY / window.innerHeight) - 0.5;
         layers.forEach(l => {
             const d = l.getAttribute('data-depth');
-            l.style.transform = `translate3d(${tx*d*800}px, ${ty*d*800}px, 0)`;
+            l.style.transform = `translate3d(${tx * d * 200}px, ${ty * d * 200}px, 0)`;
         });
     });
 }

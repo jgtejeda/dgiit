@@ -3,7 +3,8 @@
  * Cliente para interactuar con el backend Node.js/Express
  */
 
-const API_BASE_URL = '/api-dgiit/api';
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const API_BASE_URL = isLocal ? 'http://localhost:4001/api' : '/api-dgiit/api';
 
 const apiClient = {
     // --- SESIÓN ---

@@ -2,8 +2,23 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>DGIIT | SECTURI</title>
+
+    <!-- PWA: Manifest & Theme -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0d0d0d">
+    <meta name="mobile-web-app-capable" content="yes">
+
+    <!-- PWA: iOS / Safari -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SGC PRO">
+    <link rel="apple-touch-icon" href="icons/icon.svg">
+
+    <!-- PWA: Windows / Edge -->
+    <meta name="msapplication-TileColor" content="#0d0d0d">
+    <meta name="msapplication-tap-highlight" content="no">
     <!-- Google Fonts: Manrope -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -34,7 +49,7 @@
         <div class="stable-card-container">
             <div class="corporate-card glass-premium">
                 <div class="card-header">
-                    <div class="logo-box" style="width: auto; height: auto; background: rgba(255, 255, 255, 0.95); border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 8px 20px rgba(0,0,0,0.25); margin-bottom: 1rem; padding: 15px 25px; border-radius: 12px; display: inline-block;">
+                    <div class="logo-box glass-premium" style="margin-bottom: 1rem; padding: 15px 25px; border-radius: 12px; display: inline-block;">
                         <img src="https://sectur.guanajuato.gob.mx/wp-content/uploads/2024/09/logo-turismoeidentidad-gto-300x103.png" alt="DGIIT Logo" style="max-width: 200px; display: block; margin: 0 auto;" />
                     </div>
                     <h2>DGIIT</h2>
@@ -67,7 +82,7 @@
         <!-- Unified Header Console -->
         <header class="glass-header glass-premium">
             <div class="h-left" style="display: flex; align-items: center; gap: 15px;">
-                <div style="background: rgba(255, 255, 255, 0.95); padding: 6px 12px; border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,0.15);">
+                <div class="glass-premium" style="padding: 6px 12px; border-radius: 6px;">
                     <img src="https://sectur.guanajuato.gob.mx/wp-content/uploads/2024/09/logo-turismoeidentidad-gto-300x103.png" alt="Logo" style="height: 24px; display: block;">
                 </div>
                 <div id="clock">--:--:--</div>
@@ -79,6 +94,7 @@
 
             <!-- Header Navigation -->
             <nav class="header-nav">
+                <div class="nav-slider" id="nav-slider"></div>
                 <button class="nav-btn active" data-view="board-view" id="nav-board">
                     <i data-lucide="columns-3"></i><span>Tablero</span>
                 </button>
@@ -97,6 +113,9 @@
                 <div class="weather-widget glass-pill">
                     <i data-lucide="cloud" class="w-icon"></i><span class="w-temp">24°C</span>
                 </div>
+                <button class="btn-logout-header" id="theme-toggle" title="Cambiar Tema" style="background: rgba(255,255,255,0.05); color: var(--text-color); border: 1px solid rgba(255,255,255,0.1);">
+                    <i data-lucide="moon" id="theme-icon"></i>
+                </button>
                 <div class="user-profile-trigger" id="btn-open-profile" title="Mi Perfil">
                     <div id="header-user-avatar" class="avatar-chip"></div>
                     <span id="header-user-name" class="header-user-name"></span>
@@ -227,6 +246,30 @@
             </section>
 
         </main>
+
+        <!-- Bottom Navigation — solo visible en móvil vía CSS -->
+        <nav class="mobile-bottom-nav" id="mobile-bottom-nav" aria-label="Navegación principal">
+            <button class="mobile-nav-btn active" id="mobile-btn-board"
+                    onclick="document.getElementById('nav-board').click()" aria-label="Tablero">
+                <i data-lucide="columns-3"></i>
+                <span>Tablero</span>
+            </button>
+            <button class="mobile-nav-btn" id="mobile-btn-bitacora"
+                    onclick="document.getElementById('nav-bitacora').click()" aria-label="Bitácora">
+                <i data-lucide="eye"></i>
+                <span>Bitácora</span>
+            </button>
+            <button class="mobile-nav-btn" id="mobile-btn-users"
+                    onclick="document.getElementById('nav-users').click()" aria-label="Equipo">
+                <i data-lucide="users"></i>
+                <span>Equipo</span>
+            </button>
+            <button class="mobile-nav-btn" id="mobile-btn-archive"
+                    onclick="document.getElementById('nav-archive').click()" aria-label="Archivo">
+                <i data-lucide="archive"></i>
+                <span>Archivo</span>
+            </button>
+        </nav>
     </div>
 
     <!-- ============================================================ -->
@@ -469,5 +512,56 @@
     <!-- Scripts -->
     <script src="js/api-client.js?v=8"></script>
     <script src="js/app-db.js?v=8"></script>
+
+    <!-- PWA: Service Worker + Bottom Nav Sync -->
+    <script>
+    (function () {
+        /* 1. Registrar Service Worker */
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .catch(function (err) { console.warn('[PWA] SW no registrado:', err); });
+            });
+        }
+
+        /* 2. Sincronizar estado activo del bottom nav con el header nav */
+        function syncBottomNav() {
+            var map = {
+                'nav-board':    'mobile-btn-board',
+                'nav-bitacora': 'mobile-btn-bitacora',
+                'nav-users':    'mobile-btn-users',
+                'nav-archive':  'mobile-btn-archive'
+            };
+
+            var observer = new MutationObserver(function () {
+                Object.keys(map).forEach(function (topId) {
+                    var top    = document.getElementById(topId);
+                    var bottom = document.getElementById(map[topId]);
+                    if (top && bottom) {
+                        bottom.classList.toggle('active', top.classList.contains('active'));
+                    }
+                });
+            });
+
+            Object.keys(map).forEach(function (topId) {
+                var el = document.getElementById(topId);
+                if (el) observer.observe(el, { attributes: true, attributeFilter: ['class'] });
+            });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', syncBottomNav);
+        } else {
+            syncBottomNav();
+        }
+
+        /* 3. Banner de instalación PWA */
+        var deferredPrompt = null;
+        window.addEventListener('beforeinstallprompt', function (e) {
+            e.preventDefault();
+            deferredPrompt = e;
+        });
+    })();
+    </script>
 </body>
 </html>

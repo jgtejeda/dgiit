@@ -1,0 +1,27 @@
+{
+  "name": "DGIIT SGC PRO",
+  "short_name": "SGC PRO",
+  "description": "Sistema de Gestión de Control - DGIIT SECTURI Guanajuato",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0d0d0d",
+  "theme_color": "#0d0d0d",
+  "orientation": "portrait-primary",
+  "lang": "es-MX",
+  "scope": "/",
+  "categories": ["productivity", "business"],
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -9,8 +9,8 @@ services:
     ports:
       - "3310:3306"
     environment:
-      MYSQL_DATABASE: sgc_pro
-      MYSQL_ROOT_PASSWORD: Hol@9753.7ok
+      MYSQL_DATABASE: ${DB_NAME:-sgc_pro}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root}
     volumes:
       - db_data:/var/lib/mysql
       - ./backend/database.sql:/docker-entrypoint-initdb.d/init.sql
@@ -21,21 +21,14 @@ services:
     container_name: glass_task_backend
     restart: always
     ports:
-      - "4001:3000"
+      - "4001:${PORT:-3000}"
     volumes:
       - ./backend:/app
       - /app/node_modules
-    environment:
-      - DB_HOST=db
-      - DB_PORT=3306
-      - DB_USER=root
-      - DB_PASSWORD=Hol@9753.7ok
-      - DB_NAME=sgc_pro
-      - PORT=3000
-    depends_on:
-      - db
     env_file:
       - ./backend/.env
+    depends_on:
+      - db
 
   frontend:
     build:

@@ -143,19 +143,11 @@ async function runMigrations(conn) {
         try {
             await conn.query(sql);
         } catch (e) {
-            if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_DUP_KEYNAME') {
-                console.warn('⚙️  Migración (omitida o ya aplicada):', e.message.substring(0, 60));
+            // Ignorar errores comunes de "columna ya existe" o "índice replicado"
+            if (e.code !== 'ER_DUP_FIELDNAME' && e.code !== 'ER_DUP_KEYNAME' && e.code !== 'ER_PFS_ALREADY_EXISTS') {
+                console.warn('⚙️  Migración (info):', e.message.substring(0, 80));
             }
         }
-    }
-
-    // Asegurar columna photo de forma independiente
-    try {
-        await conn.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS photo LONGTEXT');
-        console.log('✅ Base de datos lista para recibir fotos.');
-    } catch (e) {
-        // Silencioso si ya existe, pero loguear si es otro error
-        if (e.code !== 'ER_DUP_FIELDNAME') console.error('❌ Error asegurando columna photo:', e.message);
     }
 
     console.log('⚙️  Migraciones verificadas correctamente.');

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#111827"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glow2" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="20" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="90" fill="url(#bg)"/>
+
+  <!-- Outer glow ring -->
+  <circle cx="256" cy="230" r="195" fill="none" stroke="#00f2ff" stroke-width="1.5" opacity="0.12"/>
+
+  <!-- Shield -->
+  <path d="M256 60 L390 135 L390 265 Q390 375 256 430 Q122 375 122 265 L122 135 Z"
+        fill="rgba(0,242,255,0.05)"
+        stroke="#00f2ff" stroke-width="5" stroke-linejoin="round"
+        filter="url(#glow)"/>
+
+  <!-- Big S (SECTURI) -->
+  <text x="258" y="305"
+        font-family="'Arial Black', Arial, sans-serif"
+        font-size="220" font-weight="900"
+        fill="#00f2ff"
+        text-anchor="middle"
+        filter="url(#glow2)"
+        opacity="1">S</text>
+
+  <!-- Divider line -->
+  <line x1="100" y1="446" x2="412" y2="446" stroke="#00f2ff" stroke-width="1.5" opacity="0.3"/>
+
+  <!-- DGIIT label -->
+  <text x="256" y="488"
+        font-family="Arial, sans-serif"
+        font-size="40" font-weight="700"
+        fill="#00f2ff"
+        text-anchor="middle"
+        letter-spacing="8"
+        opacity="0.85">DGIIT</text>
+</svg>
