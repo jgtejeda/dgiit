@@ -1,5 +1,5 @@
 /* 
-   SGC PRO | Hyper-Glass MASTER STYLESHEET
+   DGIIT | SECTURI | Hyper-Glass MASTER STYLESHEET
    Consolidated & Stabilized
 */
 
@@ -504,6 +504,59 @@ body.data-theme:has(#login-screen:not(.hidden)) {
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     box-shadow: var(--glass-shadow);
+}
+
+/* --- FILTERS & SEARCH --- */
+.column-filters {
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.filter-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+}
+
+.filter-row i {
+    position: absolute;
+    left: 10px;
+    width: 14px;
+    height: 14px;
+    color: var(--corp-light);
+    opacity: 0.6;
+}
+
+.filter-row input, 
+.filter-row select {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.2) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 8px !important;
+    padding: 8px 8px 8px 30px !important;
+    color: white !important;
+    font-size: 0.7rem !important;
+    font-family: inherit;
+    transition: 0.3s;
+}
+
+.filter-row select {
+    padding-left: 10px !important;
+    cursor: pointer;
+}
+
+.filter-row input:focus, 
+.filter-row select:focus {
+    border-color: var(--corp-light) !important;
+    background: rgba(0, 0, 0, 0.4) !important;
+    outline: none;
 }
 
 .col-header {

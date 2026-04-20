@@ -1,4 +1,4 @@
-# SGC PRO | Hyper-Glass Dashboard
+# DGIIT | SECTURI | Hyper-Glass Dashboard
 
 Dashboard de gestión de proyectos con estilo Glassmorphism y conexión a base de datos MySQL.
 
@@ -36,7 +36,7 @@ DB_HOST=127.0.0.1
 DB_PORT=8889
 DB_USER=root
 DB_PASSWORD=root
-DB_NAME=sgc_pro
+DB_NAME=dgiit_secturi
 PORT=3000
 ```
 
@@ -46,7 +46,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=tu_contraseña
-DB_NAME=sgc_pro
+DB_NAME=dgiit_secturi
 PORT=3000
 ```
 

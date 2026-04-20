@@ -13,7 +13,7 @@
     <!-- PWA: iOS / Safari -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="SGC PRO">
+    <meta name="apple-mobile-web-app-title" content="DGIIT | SECTURI">
     <link rel="apple-touch-icon" href="icons/icon.svg">
 
     <!-- PWA: Windows / Edge -->
@@ -60,7 +60,7 @@
                         <label>Email Corporativo</label>
                         <div class="corp-field">
                             <i data-lucide="user"></i>
-                            <input type="email" id="login-email" placeholder="usuario@sgc.pro" required>
+                            <input type="email" id="login-email" placeholder="usuario@dgiit.mx" required>
                         </div>
                     </div>
                     <div class="corp-input-group">
@@ -135,15 +135,72 @@
                     <div class="trello-board">
                         <div class="trello-column glass-premium" id="col-todo">
                             <div class="col-header"><h3>POR HACER</h3><span class="count">0</span></div>
+                            <div class="column-filters">
+                                <div class="filter-row">
+                                    <i data-lucide="search"></i>
+                                    <input type="text" id="filter-user-todo" placeholder="Usuario..." oninput="handleFilterChange('TODO', 'user', this.value)">
+                                </div>
+                                <div class="filter-row">
+                                    <select id="filter-month-todo" onchange="handleFilterChange('TODO', 'month', this.value)">
+                                        <option value="">Mes...</option>
+                                        <option value="0">Enero</option><option value="1">Febrero</option><option value="2">Marzo</option>
+                                        <option value="3">Abril</option><option value="4">Mayo</option><option value="5">Junio</option>
+                                        <option value="6">Julio</option><option value="7">Agosto</option><option value="8">Septiembre</option>
+                                        <option value="9">Octubre</option><option value="10">Noviembre</option><option value="11">Diciembre</option>
+                                    </select>
+                                    <select id="filter-priority-todo" onchange="handleFilterChange('TODO', 'priority', this.value)">
+                                        <option value="">Prio...</option>
+                                        <option value="BAJA">Baja</option><option value="MEDIA">Media</option><option value="ALTA">Alta</option><option value="CRÍTICA">Crítica</option>
+                                    </select>
+                                </div>
+                            </div>
                             <div class="task-stack" id="stack-todo"></div>
                             <button class="btn-add-task-modal"><i data-lucide="plus"></i> Nueva Ficha de Proyecto</button>
                         </div>
                         <div class="trello-column glass-premium" id="col-progress">
                             <div class="col-header"><h3>EN PROCESO</h3><span class="count">0</span></div>
+                            <div class="column-filters">
+                                <div class="filter-row">
+                                    <i data-lucide="search"></i>
+                                    <input type="text" id="filter-user-progress" placeholder="Usuario..." oninput="handleFilterChange('PROGRESS', 'user', this.value)">
+                                </div>
+                                <div class="filter-row">
+                                    <select id="filter-month-progress" onchange="handleFilterChange('PROGRESS', 'month', this.value)">
+                                        <option value="">Mes...</option>
+                                        <option value="0">Enero</option><option value="1">Febrero</option><option value="2">Marzo</option>
+                                        <option value="3">Abril</option><option value="4">Mayo</option><option value="5">Junio</option>
+                                        <option value="6">Julio</option><option value="7">Agosto</option><option value="8">Septiembre</option>
+                                        <option value="9">Octubre</option><option value="10">Noviembre</option><option value="11">Diciembre</option>
+                                    </select>
+                                    <select id="filter-priority-progress" onchange="handleFilterChange('PROGRESS', 'priority', this.value)">
+                                        <option value="">Prio...</option>
+                                        <option value="BAJA">Baja</option><option value="MEDIA">Media</option><option value="ALTA">Alta</option><option value="CRÍTICA">Crítica</option>
+                                    </select>
+                                </div>
+                            </div>
                             <div class="task-stack" id="stack-progress"></div>
                         </div>
                         <div class="trello-column glass-premium" id="col-done">
                             <div class="col-header"><h3>TERMINADO</h3><span class="count">0</span></div>
+                            <div class="column-filters">
+                                <div class="filter-row">
+                                    <i data-lucide="search"></i>
+                                    <input type="text" id="filter-user-done" placeholder="Usuario..." oninput="handleFilterChange('DONE', 'user', this.value)">
+                                </div>
+                                <div class="filter-row">
+                                    <select id="filter-month-done" onchange="handleFilterChange('DONE', 'month', this.value)">
+                                        <option value="">Mes...</option>
+                                        <option value="0">Enero</option><option value="1">Febrero</option><option value="2">Marzo</option>
+                                        <option value="3">Abril</option><option value="4">Mayo</option><option value="5">Junio</option>
+                                        <option value="6">Julio</option><option value="7">Agosto</option><option value="8">Septiembre</option>
+                                        <option value="9">Octubre</option><option value="10">Noviembre</option><option value="11">Diciembre</option>
+                                    </select>
+                                    <select id="filter-priority-done" onchange="handleFilterChange('DONE', 'priority', this.value)">
+                                        <option value="">Prio...</option>
+                                        <option value="BAJA">Baja</option><option value="MEDIA">Media</option><option value="ALTA">Alta</option><option value="CRÍTICA">Crítica</option>
+                                    </select>
+                                </div>
+                            </div>
                             <div class="task-stack" id="stack-done"></div>
                         </div>
                     </div>
@@ -239,6 +296,25 @@
                 <div class="full-view-container glass-premium">
                     <div class="view-header">
                         <h2>ARCHIVADOS / TERMINADOS</h2>
+                        <div class="column-filters" style="margin: 0; min-width: 400px; display: flex; gap: 10px;">
+                            <div class="filter-row" style="flex: 1;">
+                                <i data-lucide="search"></i>
+                                <input type="text" id="filter-user-archive" placeholder="Usuario..." oninput="handleFilterChange('ARCHIVE', 'user', this.value)">
+                            </div>
+                            <div class="filter-row" style="flex: 1;">
+                                <select id="filter-month-archive" onchange="handleFilterChange('ARCHIVE', 'month', this.value)">
+                                    <option value="">Mes...</option>
+                                    <option value="0">Enero</option><option value="1">Febrero</option><option value="2">Marzo</option>
+                                    <option value="3">Abril</option><option value="4">Mayo</option><option value="5">Junio</option>
+                                    <option value="6">Julio</option><option value="7">Agosto</option><option value="8">Septiembre</option>
+                                    <option value="9">Octubre</option><option value="10">Noviembre</option><option value="11">Diciembre</option>
+                                </select>
+                                <select id="filter-priority-archive" onchange="handleFilterChange('ARCHIVE', 'priority', this.value)">
+                                    <option value="">Prioridad...</option>
+                                    <option value="BAJA">Baja</option><option value="MEDIA">Media</option><option value="ALTA">Alta</option><option value="CRÍTICA">Crítica</option>
+                                </select>
+                            </div>
+                        </div>
                         <button class="btn-clear-logs" id="clear-archive">Vaciar Archivos</button>
                     </div>
                     <div class="archive-grid" id="archive-grid-container"></div>

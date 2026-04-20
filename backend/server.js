@@ -1,5 +1,5 @@
 /**
- * SGC PRO | Backend Server con Node.js y MySQL
+ * DGIIT | SECTURI | Backend Server con Node.js y MySQL
  * API REST para Autenticación, Usuarios, Tareas, Etapas y Retroalimentación
  */
 
@@ -730,5 +730,5 @@ app.post('/api/logs', verifyToken, async (req, res) => {
 // ============================================
 
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor SGC PRO corriendo en http://localhost:${PORT}`);
+    console.log(`🚀 Servidor DGIIT | SECTURI corriendo en http://localhost:${PORT}`);
 });

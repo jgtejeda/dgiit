@@ -23,7 +23,7 @@ async function sendEmail({ to, subject, title, message, actionLink = null }) {
         const html = `
         <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
             <div style="background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); padding: 25px; text-align: center; color: white;">
-                <h1 style="margin: 0; font-size: 24px; letter-spacing: 1px;">SGC PRO</h1>
+                <h1 style="margin: 0; font-size: 24px; letter-spacing: 1px;">DGIIT | SECTURI</h1>
                 <p style="margin: 5px 0 0; opacity: 0.8; font-size: 14px;">Aviso de Notificación Automática</p>
             </div>
             <div style="padding: 30px; background-color: #ffffff; color: #333333; line-height: 1.6;">
@@ -44,9 +44,9 @@ async function sendEmail({ to, subject, title, message, actionLink = null }) {
         `;
 
         const info = await transporter.sendMail({
-            from: `"SGC PRO Notifications" <${process.env.EMAIL_USER}>`,
+            from: `"DGIIT | SECTURI Notifications" <${process.env.EMAIL_USER}>`,
             to,
-            subject: `[SGC PRO] ${subject}`,
+            subject: `[DGIIT | SECTURI] ${subject}`,
             html
         });
 

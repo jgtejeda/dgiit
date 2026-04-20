@@ -1,5 +1,5 @@
 /**
- * SGC PRO | Master Logic Engine con Base de Datos
+ * DGIIT | SECTURI | Master Logic Engine con Base de Datos
  * Role-Based Access Control, Activity Tracking, Progress, Todos, Comments
  */
 
@@ -11,6 +11,23 @@ let logsCache = [];
 let currentUser = JSON.parse(localStorage.getItem('sgc_user')) || null;
 let currentTaskId = null;
 let currentTaskAssignees = []; // Cache de responsables del modal activo
+
+// --- ESTADO DE FILTRADO (Buscadores independientes) ---
+let currentFilters = {
+    TODO:     { user: '', month: '', priority: '' },
+    PROGRESS: { user: '', month: '', priority: '' },
+    DONE:     { user: '', month: '', priority: '' },
+    ARCHIVE:  { user: '', month: '', priority: '' }
+};
+
+function handleFilterChange(column, type, value) {
+    currentFilters[column][type] = value;
+    if (column === 'ARCHIVE') {
+        renderArchive();
+    } else {
+        renderBoard();
+    }
+}
 
 // --- 0. SEGURIDAD (ANTI-XSS) ---
 function sanitizeHTML(str) {
@@ -315,6 +332,25 @@ async function renderBoard() {
     tasksCache = result.data;
 
     tasksCache.filter(t => t.status !== 'ARCHIVED').forEach(task => {
+        // --- APLICAR FILTROS ---
+        const colFilters = currentFilters[task.status];
+        if (colFilters) {
+            // 1. Filtrar por Usuario (en responsables)
+            if (colFilters.user) {
+                const search = colFilters.user.toLowerCase();
+                const hasMatch = task.assignees.some(asg => asg.user_name.toLowerCase().includes(search));
+                if (!hasMatch) return;
+            }
+            // 2. Filtrar por Mes (en deadline)
+            if (colFilters.month !== '') {
+                if (!task.deadline) return;
+                const d = new Date(task.deadline);
+                if (d.getMonth() != colFilters.month) return;
+            }
+            // 3. Filtrar por Prioridad
+            if (colFilters.priority && task.priority !== colFilters.priority) return;
+        }
+
         let deadlineDate = new Date(task.deadline || Date.now());
         if (isNaN(deadlineDate)) deadlineDate = new Date();
 
@@ -367,8 +403,7 @@ async function renderBoard() {
     document.querySelectorAll('.trello-column').forEach(col => {
         const stackEl = col.querySelector('.task-stack');
         if (!stackEl) return;
-        const stackId = stackEl.id.split('-')[1].toUpperCase();
-        col.querySelector('.count').innerText = tasksCache.filter(t => t.status === stackId).length;
+        col.querySelector('.count').innerText = stackEl.children.length;
     });
 
     refreshIcons();
@@ -827,6 +862,25 @@ async function renderArchive() {
     grid.innerHTML = '';
     const archived = result.data.filter(t => t.status === 'ARCHIVED');
     archived.forEach(task => {
+        // --- APLICAR FILTROS ---
+        const colFilters = currentFilters['ARCHIVE'];
+        if (colFilters) {
+            // 1. Filtrar por Usuario (en responsables)
+            if (colFilters.user) {
+                const search = colFilters.user.toLowerCase();
+                const hasMatch = (task.assignees || []).some(asg => asg.user_name.toLowerCase().includes(search));
+                if (!hasMatch) return;
+            }
+            // 2. Filtrar por Mes
+            if (colFilters.month !== '') {
+                if (!task.deadline) return;
+                const d = new Date(task.deadline);
+                if (d.getMonth() != colFilters.month) return;
+            }
+            // 3. Filtrar por Prioridad
+            if (colFilters.priority && task.priority !== colFilters.priority) return;
+        }
+
         let deadlineDate = new Date(task.deadline || Date.now());
         if (isNaN(deadlineDate)) deadlineDate = new Date();
         const card = document.createElement('div');

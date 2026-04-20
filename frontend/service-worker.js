@@ -1,7 +1,7 @@
-/* SGC PRO — Service Worker v1.0 */
+/* DGIIT | SECTURI — Service Worker v1.0 */
 
-const CACHE_NAME = 'sgc-pro-v1.0';
-const CDN_CACHE  = 'sgc-pro-cdn-v1.0';
+const CACHE_NAME = 'dgiit-secturi-v1.0';
+const CDN_CACHE  = 'dgiit-secturi-cdn-v1.0';
 
 const APP_SHELL = [
     '/',
