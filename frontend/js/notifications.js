@@ -103,9 +103,11 @@ async function handlePushButtonClick() {
     }
 }
 
-// Escuchar eventos si el botón existe
+// Escuchar eventos usando delegación para mayor robustez
 document.addEventListener('click', e => {
-    if (e.target && e.target.id === 'btn-toggle-push') {
+    const pushBtn = e.target.closest('#btn-toggle-push');
+    if (pushBtn) {
+        console.log('🔔 Click detectado en botón push');
         handlePushButtonClick();
     }
 });

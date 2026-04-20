@@ -610,7 +610,9 @@
         /* 1. Registrar Service Worker */
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('/service-worker.js')
+                // Registro relativo para soportar subcarpetas (ej: /dgiit/)
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(function(reg) { console.log('[PWA] SW registrado:', reg.scope); })
                     .catch(function (err) { console.warn('[PWA] SW no registrado:', err); });
             });
         }
@@ -645,6 +647,8 @@
         } else {
             syncBottomNav();
         }
+
+
 
         /* 3. Banner de instalación PWA */
         var deferredPrompt = null;
