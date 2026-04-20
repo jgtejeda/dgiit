@@ -86,3 +86,55 @@ self.addEventListener('fetch', event => {
         })
     );
 });
+
+/* ── PUSH NOTIFICATIONS ──────────────────────────────────── */
+self.addEventListener('push', event => {
+    let data = { title: 'DGIIT | SECTURI', body: 'Nueva actualización' };
+    
+    try {
+        if (event.data) {
+            data = event.data.json();
+        }
+    } catch (e) {
+        console.warn('[SW] Push data error:', e);
+        if (event.data) data.body = event.data.text();
+    }
+
+    const options = {
+        body: data.body,
+        icon: '/icons/icon.svg',
+        badge: '/icons/icon.svg',
+        vibrate: [100, 50, 100],
+        data: {
+            url: data.data && data.data.taskId ? `/?taskId=${data.data.taskId}` : '/'
+        }
+    };
+
+    event.waitUntil(
+        self.registration.showNotification(data.title, options)
+    );
+});
+
+/* ── NOTIFICATION CLICK: open app ────────────────────────── */
+self.addEventListener('notificationclick', event => {
+    event.notification.close();
+    
+    const targetUrl = event.notification.data.url;
+
+    event.waitUntil(
+        clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+            // Si hay una ventana abierta, enfocarla y navegar
+            for (let i = 0; i < windowClients.length; i++) {
+                const client = windowClients[i];
+                if (client.url.includes(self.location.origin) && 'focus' in client) {
+                    client.postMessage({ type: 'NAVIGATE', url: targetUrl });
+                    return client.focus();
+                }
+            }
+            // Si no hay ventana abierta, abrir una nueva
+            if (clients.openWindow) {
+                return clients.openWindow(targetUrl);
+            }
+        })
+    );
+});

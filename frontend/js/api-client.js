@@ -129,6 +129,11 @@ const apiClient = {
     async getLogs() { return this.request('/logs'); },
     async saveLog(logData) {
         return this.request('/logs', { method: 'POST', body: JSON.stringify(logData) });
+    },
+
+    // --- NOTIFICACIONES PUSH ---
+    async subscribePush(subscription) {
+        return this.request('/notifications/subscribe', { method: 'POST', body: JSON.stringify({ subscription }) });
     }
 };
 

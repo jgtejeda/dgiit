@@ -580,14 +580,29 @@
                     </div>
                 </div>
 
-                <button type="submit" class="btn-corporate" style="margin-top: 20px;">GUARDAR CAMBIOS</button>
+                <div class="profile-settings-section" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid rgba(255,255,255,0.1);">
+                    <h3 style="font-size: 0.8rem; letter-spacing: 1px; margin-bottom: 15px;">CONFIGURACIÓN</h3>
+                    <div class="notification-toggle-row" style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.2); padding: 12px; border-radius: 12px;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <i data-lucide="bell" id="push-icon-status" style="color: var(--corp-light); width: 18px;"></i>
+                            <span style="font-size: 0.85rem; font-weight: 600;">Alertas en este dispositivo</span>
+                        </div>
+                        <button type="button" id="btn-toggle-push" class="btn-todo-add" style="margin: 0; padding: 6px 12px; font-size: 0.7rem;">
+                            CONFIGURAR
+                        </button>
+                    </div>
+                    <p id="push-status-msg" class="progress-hint" style="margin-top: 8px;">Las notificaciones push permiten recibir avisos incluso con la app cerrada.</p>
+                </div>
+
+                <button type="submit" class="btn-corporate" style="margin-top: 25px;">GUARDAR PERFIL</button>
             </form>
         </div>
     </div>
 
     <!-- Scripts -->
-    <script src="js/api-client.js?v=8"></script>
-    <script src="js/app-db.js?v=8"></script>
+    <script src="js/api-client.js"></script>
+    <script src="js/notifications.js"></script>
+    <script src="js/app-db.js"></script>
 
     <!-- PWA: Service Worker + Bottom Nav Sync -->
     <script>

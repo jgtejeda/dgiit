@@ -1123,6 +1123,11 @@ window.openProfileModal = () => {
     updateProfilePreview(currentUser.photo);
     document.getElementById('profile-modal').classList.remove('hidden');
     refreshIcons();
+    
+    // Inicializar UI de notificaciones Push
+    if (typeof initPushNotificationUI === 'function') {
+        initPushNotificationUI();
+    }
 };
 
 window.closeProfileModal = () => {
@@ -1274,4 +1279,23 @@ document.addEventListener('DOMContentLoaded', () => {
     initClock();
     initPickers();
     initSortable();
+
+    // Manejar navegación desde notificaciones Push (si la app está abierta)
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('message', event => {
+            if (event.data && event.data.type === 'NAVIGATE') {
+                const url = new URL(event.data.url, window.location.origin);
+                const tId = url.searchParams.get('taskId');
+                if (tId) window.openTaskModal(parseInt(tId));
+            }
+        });
+    }
+
+    // Manejar navegación desde URL (si la app se abre desde cero)
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('taskId')) {
+        setTimeout(() => {
+            if (window.openTaskModal) window.openTaskModal(parseInt(params.get('taskId')));
+        }, 800);
+    }
 });

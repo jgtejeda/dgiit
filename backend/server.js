@@ -12,6 +12,7 @@ const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { sendEmail } = require('./utils/mailer');
+const { sendPush } = require('./utils/push');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -137,7 +138,14 @@ async function runMigrations(conn) {
             FROM tasks t
             LEFT JOIN users u ON u.name = t.assignee
             WHERE t.assignee IS NOT NULL AND t.assignee != ''`,
-        `ALTER TABLE users ADD COLUMN photo LONGTEXT DEFAULT NULL`
+        `ALTER TABLE users ADD COLUMN photo LONGTEXT DEFAULT NULL`,
+        `CREATE TABLE IF NOT EXISTS push_subscriptions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            subscription_json TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
     ];
     for (const sql of migrations) {
         try {
@@ -199,6 +207,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
         // ==========================================
         // LÓGICA DE DISTRIBUCIÓN Y MENSAJES
         // ==========================================
+        // ==========================================
 
         if (eventType === 'CREATE') {
             // A) Al usuario creador: "Inf que hizo"
@@ -219,6 +228,11 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     title: 'Nueva Asignación',
                     message: `<b>${authorName}</b> te ha asignado la ficha: <b>${taskTitle}</b>.`,
                     actionLink: 'http://localhost:8080'
+                });
+                broadcastPush(assigneeEmail, {
+                    title: '🚀 Nueva Asignación',
+                    body: `${authorName} te asignó la ficha: ${taskTitle}`,
+                    data: { taskId: taskData.id }
                 });
             }
             // C) A los ADMINS: "Fulano de tal hizo esto"
@@ -252,6 +266,11 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     title: 'Ficha Modificada',
                     message: `<b>${authorName}</b> ha modificado tu ficha <b>${taskTitle}</b>. Nuevo estado: ${taskData.status}. Progreso: ${taskData.progress}%.`,
                     actionLink: 'http://localhost:8080'
+                });
+                broadcastPush(assigneeEmail, {
+                    title: '📝 Ficha Actualizada',
+                    body: `${authorName} modificó tu ficha: ${taskTitle}`,
+                    data: { taskId: taskData.id }
                 });
             }
             // C) A los ADMINS
@@ -288,6 +307,11 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                         message: `En tu ficha <b>${taskTitle}</b>, el administrador <b>${authorName}</b> te comenta: <br/>"<i>${commentData.content}</i>"`,
                         actionLink: 'http://localhost:8080'
                     });
+                    broadcastPush(assigneeEmail, {
+                        title: '💬 Nota de Admin',
+                        body: `${authorName}: ${commentData.content}`,
+                        data: { taskId: taskData.id }
+                    });
                 }
             } else {
                 // Si el autor es estándar, todos los admins se enteran, y el asignado (si no es el mismo autor) se entera
@@ -309,11 +333,38 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                         message: `<b>${authorName}</b> ha comentado en <b>${taskTitle}</b>: <br/>"<i>${commentData.content}</i>"`,
                         actionLink: 'http://localhost:8080'
                     });
+                    broadcastPush(assigneeEmail, {
+                        title: '💬 Nuevo Comentario',
+                        body: `${authorName}: ${commentData.content}`,
+                        data: { taskId: taskData.id }
+                    });
                 }
             }
         }
     } catch (e) {
         console.error('Error en notificaciones contextuales:', e);
+    }
+}
+
+/**
+ * Envía notificaciones Push a todos los dispositivos de un usuario
+ */
+async function broadcastPush(userEmail, payload) {
+    try {
+        const [uRows] = await pool.query('SELECT id FROM users WHERE email = ?', [userEmail]);
+        if (!uRows.length) return;
+        const userId = uRows[0].id;
+
+        const [subs] = await pool.query('SELECT id, subscription_json FROM push_subscriptions WHERE user_id = ?', [userId]);
+        for (const s of subs) {
+            const subscription = JSON.parse(s.subscription_json);
+            const res = await sendPush(subscription, payload);
+            if (res.expired) {
+                await pool.query('DELETE FROM push_subscriptions WHERE id = ?', [s.id]);
+            }
+        }
+    } catch (e) {
+        console.error('Error en broadcastPush:', e);
     }
 }
 
@@ -728,7 +779,23 @@ app.post('/api/logs', verifyToken, async (req, res) => {
 // ============================================
 // SERVIDOR
 // ============================================
+// --- NOTIFICACIONES PUSH: Suscribirse (Frontend envía el objeto PushSubscription) ---
+app.post('/api/notifications/subscribe', verifyToken, async (req, res) => {
+    const { subscription } = req.body;
+    if (!subscription) return res.status(400).json({ success: false, message: 'Suscripción requerida' });
 
-app.listen(PORT, () => {
+    try {
+        const subJson = JSON.stringify(subscription);
+        // Insertar ignorando si ya existe la misma suscripción para ese usuario
+        await pool.query('INSERT IGNORE INTO push_subscriptions (user_id, subscription_json) VALUES (?, ?)', [req.user.id, subJson]);
+        res.json({ success: true, message: 'Dispositivo registrado para recibir notificaciones' });
+    } catch (error) {
+        console.error('Push Subscribe Error:', error);
+        res.status(500).json({ success: false, message: 'Error interno al suscribir' });
+    }
+});
+
+// Arrancar Servidor
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Servidor DGIIT | SECTURI corriendo en http://localhost:${PORT}`);
 });
