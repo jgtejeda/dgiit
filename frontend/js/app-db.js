@@ -130,6 +130,10 @@ function switchView(viewId) {
     if (viewId === 'user-mgmt-view') renderUsersList();
     if (viewId === 'board-view') renderBoard();
     if (viewId === 'archive-view') renderArchive();
+    if (viewId === 'folios-view') {
+        if (typeof initFolioForm === 'function') initFolioForm();
+        if (typeof loadFolios === 'function') loadFolios();
+    }
     refreshIcons();
 }
 

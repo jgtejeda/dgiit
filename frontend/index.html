@@ -107,6 +107,9 @@
                 <button class="nav-btn" data-view="archive-view" id="nav-archive">
                     <i data-lucide="archive"></i><span>Archivo</span>
                 </button>
+                <button class="nav-btn" data-view="folios-view" id="nav-folios">
+                    <i data-lucide="file-text"></i><span>Folios</span>
+                </button>
             </nav>
 
             <div class="h-right">
@@ -340,6 +343,177 @@
 
         </main>
 
+        <!-- VIEW 5: FOLIOS — Layout Dividido -->
+        <section id="folios-view" class="view-section hidden">
+            <div class="folios-layout">
+
+                <!-- ── PANEL IZQUIERDO: Formulario ── -->
+                <aside class="folios-sidebar glass-premium">
+                    <div class="folios-sidebar-brand">
+                        <i data-lucide="file-text" class="folios-brand-icon"></i>
+                        <div>
+                            <h2 class="folios-brand-title">GESTIÓN DE PRE-FOLIOS</h2>
+                            <p class="folios-brand-sub">Solicitud, asignación y cierre de folios oficiales</p>
+                        </div>
+                    </div>
+
+                    <form id="folio-form" class="folio-inline-form" autocomplete="off">
+                        <input type="hidden" id="folio-editing-id" value="">
+
+                        <!-- Nombre de quien recibe -->
+                        <div class="folio-field-group">
+                            <label class="folio-field-label">NOMBRE DE QUIEN RECIBE (OBLIGATORIO)</label>
+                            <div class="folio-field">
+                                <i data-lucide="user"></i>
+                                <input type="text" id="folio-directed-to" placeholder="Nombre de quien recibe" required>
+                            </div>
+                        </div>
+
+                        <!-- Cargo del destinatario -->
+                        <div class="folio-field-group">
+                            <label class="folio-field-label">CARGO DEL DESTINATARIO (OBLIGATORIO)</label>
+                            <div class="folio-field">
+                                <i data-lucide="briefcase"></i>
+                                <input type="text" id="folio-position" placeholder="Ej. Director General" required>
+                            </div>
+                        </div>
+
+                        <!-- Organismo / Dependencia -->
+                        <div class="folio-field-group">
+                            <label class="folio-field-label">ORGANISMO/DEPENDENCIA (OBLIGATORIO)</label>
+                            <div class="folio-field">
+                                <i data-lucide="building-2"></i>
+                                <input type="text" id="folio-organism" placeholder="Ej. Secretaría de Finanzas" required>
+                            </div>
+                        </div>
+
+                        <!-- Quién firma -->
+                        <div class="folio-field-group">
+                            <label class="folio-field-label">QUIÉN FIRMA (AUTOMÁTICO)</label>
+                            <div class="folio-field">
+                                <i data-lucide="pen-tool"></i>
+                                <input type="text" id="folio-signed-by-name" readonly class="input-readonly" placeholder="Nombre de quien firma">
+                            </div>
+                        </div>
+                        <input type="hidden" id="folio-signed-by-email">
+
+                        <!-- Área de resguardo -->
+                        <div class="folio-field-group">
+                            <label class="folio-field-label">ÁREA DE RESGUARDO ORIGINAL (OBLIGATORIO)</label>
+                            <div class="folio-field">
+                                <i data-lucide="archive"></i>
+                                <input type="text" id="folio-area" placeholder="Ej. Archivo Central DGIIT" required>
+                            </div>
+                        </div>
+
+                        <!-- Asunto -->
+                        <div class="folio-field-group">
+                            <label class="folio-field-label">ASUNTO (OBLIGATORIO)</label>
+                            <div class="folio-field folio-field-textarea">
+                                <i data-lucide="file-text"></i>
+                                <textarea id="folio-subject" rows="2" placeholder="Describe el asunto del folio..." required></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Medio de envío -->
+                        <div class="folio-field-group">
+                            <label class="folio-field-label">MEDIO DE ENVÍO (OBLIGATORIO)</label>
+                            <div class="folio-field">
+                                <i data-lucide="send"></i>
+                                <select id="folio-delivery-mode" required>
+                                    <option value="PAM">PAM</option>
+                                    <option value="FIRMA_AUTOGRAFA">Firma Autógrafa</option>
+                                    <option value="PAM_Y_FIRMA">PAM y Firma Autógrafa</option>
+                                    <option value="CORREO">Correo</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Resguardo original -->
+                        <div class="folio-field-group folio-check-row">
+                            <label class="checkbox-label-folio">
+                                <input type="checkbox" id="folio-original-guard">
+                                <span>¿Resguardo de original?</span>
+                            </label>
+                        </div>
+
+                        <button type="submit" class="btn-corporate folio-submit-btn" id="folio-submit-btn">
+                            <i data-lucide="send"></i> Enviar Solicitud
+                        </button>
+                        <button type="button" class="folio-clear-btn hidden" id="folio-clear-btn" onclick="resetFolioForm()">
+                            <i data-lucide="x"></i> Cancelar edición
+                        </button>
+                    </form>
+                </aside>
+
+                <!-- ── PANEL DERECHO: Lista ── -->
+                <div class="folios-main">
+                    <!-- Buscador -->
+                    <div class="folio-searchbar-wrap">
+                        <i data-lucide="search"></i>
+                        <input type="text" id="folio-search-input"
+                               placeholder="Buscar por número, asunto, destinatario..."
+                               oninput="handleFolioSearch(this.value)">
+                    </div>
+
+                    <!-- Filtros tipo pill -->
+                    <div class="folio-filter-tabs" id="folio-filter-tabs">
+                        <button class="folio-tab active" data-filter="ALL">Todos</button>
+                        <button class="folio-tab" data-filter="PENDING">Pendientes</button>
+                        <button class="folio-tab" data-filter="APPROVED">En Uso</button>
+                        <button class="folio-tab" data-filter="CANCELLED">Cancelados</button>
+                    </div>
+
+                    <!-- Lista de folios -->
+                    <div id="folios-list" class="folios-list">
+                        <div class="folios-empty">
+                            <i data-lucide="loader" class="spin"></i> Cargando...
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- FOLIO DETAIL MODAL (Elizabeth: aprobar / cancelar / reasignar) -->
+        <div id="folio-detail-modal" class="modal-backdrop hidden">
+            <div class="modal-box glass-premium" style="max-width: 640px; width: 95%;">
+                <div class="modal-top-bar">
+                    <h2><i data-lucide="file-search"></i> Detalle de Pre-Folio</h2>
+                    <button type="button" class="modal-close-btn" onclick="closeFolioDetailModal()"><i data-lucide="x"></i></button>
+                </div>
+                <div id="folio-detail-content"></div>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <!-- FOLIO PDF VIEWER MODAL — Visor interno con iframe           -->
+        <!-- ═══════════════════════════════════════════════════════════ -->
+        <div id="folio-pdf-modal" class="modal-backdrop hidden">
+            <div class="modal-box glass-premium folio-pdf-modal-box">
+                <div class="modal-top-bar">
+                    <h2><i data-lucide="file-text"></i> <span id="folio-pdf-filename">Evidencia PDF</span></h2>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <button class="btn-corporate" id="folio-pdf-download-btn"
+                                style="padding:7px 14px;font-size:.75rem;gap:6px;">
+                            <i data-lucide="download"></i> Descargar
+                        </button>
+                        <button class="modal-close-btn" onclick="closeFolioPDFModal()">
+                            <i data-lucide="x"></i>
+                        </button>
+                    </div>
+                </div>
+                <!-- Loading state -->
+                <div id="folio-pdf-loading" class="folio-pdf-loading">
+                    <i data-lucide="loader" class="spin"></i>
+                    <span>Cargando documento...</span>
+                </div>
+                <!-- Viewer -->
+                <iframe id="folio-pdf-iframe" class="folio-pdf-iframe hidden" src="" title="Evidencia PDF"></iframe>
+            </div>
+        </div>
+
+
         <!-- Bottom Navigation — solo visible en móvil vía CSS -->
         <nav class="mobile-bottom-nav" id="mobile-bottom-nav" aria-label="Navegación principal">
             <button class="mobile-nav-btn active" id="mobile-btn-board"
@@ -361,6 +535,11 @@
                     onclick="document.getElementById('nav-archive').click()" aria-label="Archivo">
                 <i data-lucide="archive"></i>
                 <span>Archivo</span>
+            </button>
+            <button class="mobile-nav-btn" id="mobile-btn-folios"
+                    onclick="document.getElementById('nav-folios').click()" aria-label="Folios">
+                <i data-lucide="file-text"></i>
+                <span>Folios</span>
             </button>
         </nav>
     </div>
@@ -620,6 +799,7 @@
     <script src="js/api-client.js"></script>
     <script src="js/notifications.js"></script>
     <script src="js/app-db.js"></script>
+    <script src="js/folios.js"></script>
 
     <!-- PWA: Service Worker + Bottom Nav Sync -->
     <script>

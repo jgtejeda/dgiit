@@ -13,6 +13,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { sendEmail } = require('./utils/mailer');
 const { sendPush } = require('./utils/push');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -61,7 +63,18 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+
+// Multer: almacenar PDFs en memoria para OCR
+const uploadPDF = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/pdf') cb(null, true);
+        else cb(new Error('Solo se aceptan archivos PDF'));
+    }
+});
 
 // Limitación de peticiones para seguridad
 const limiter = rateLimit({
@@ -145,7 +158,40 @@ async function runMigrations(conn) {
             subscription_json TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+        // ─── Módulo Pre-Folios ────────────────────────────────────────────
+        `ALTER TABLE users ADD COLUMN access_type ENUM('TASKS','FOLIOS','BOTH') DEFAULT 'BOTH'`,
+        `CREATE TABLE IF NOT EXISTS folios (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            folio_number VARCHAR(50) DEFAULT NULL,
+            status ENUM('PENDING','APPROVED','CANCELLED') DEFAULT 'PENDING',
+            directed_to VARCHAR(200) NOT NULL,
+            position VARCHAR(200) NOT NULL,
+            organism VARCHAR(200) NOT NULL,
+            subject TEXT NOT NULL,
+            signed_by_name VARCHAR(150) NOT NULL,
+            signed_by_email VARCHAR(150) NOT NULL,
+            requested_by_name VARCHAR(150) NOT NULL,
+            requested_by_email VARCHAR(150) NOT NULL,
+            area VARCHAR(200) NOT NULL,
+            delivery_mode ENUM('PAM','FIRMA_AUTOGRAFA','PAM_Y_FIRMA','CORREO') NOT NULL DEFAULT 'CORREO',
+            original_guard TINYINT(1) DEFAULT 0,
+            evidence_pdf LONGBLOB DEFAULT NULL,
+            evidence_pdf_name VARCHAR(255) DEFAULT NULL,
+            evidence_ocr_text MEDIUMTEXT DEFAULT NULL,
+            cancel_reason TEXT DEFAULT NULL,
+            cancelled_by VARCHAR(150) DEFAULT NULL,
+            cancelled_at TIMESTAMP NULL DEFAULT NULL,
+            approved_by VARCHAR(150) DEFAULT NULL,
+            approved_at TIMESTAMP NULL DEFAULT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+        `CREATE TABLE IF NOT EXISTS folio_counter (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            last_number INT DEFAULT 0
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+        `INSERT IGNORE INTO folio_counter (id, last_number) VALUES (1, 0)`
     ];
     for (const sql of migrations) {
         try {
@@ -974,6 +1020,267 @@ app.put('/api/notifications/read-all', verifyToken, async (req, res) => {
     } catch (error) {
         res.status(500).json({ success: false });
     }
+});
+
+// ============================================
+// PRE-FOLIOS
+// ============================================
+
+const ELIZABETH_EMAIL = 'emartinezes@guanajuato.gob.mx';
+
+// GET: Listar todos los folios (admins/god ven todos; usuarios solo los suyos)
+app.get('/api/folios', verifyToken, async (req, res) => {
+    try {
+        let rows;
+        if (req.user.role === 'GOD' || req.user.email === ELIZABETH_EMAIL || req.user.role === 'ADMIN') {
+            [rows] = await pool.query('SELECT * FROM folios ORDER BY created_at DESC');
+        } else {
+            [rows] = await pool.query('SELECT * FROM folios WHERE requested_by_email = ? ORDER BY created_at DESC', [req.user.email]);
+        }
+        // No devolver el blob del PDF en el listado (demasiado pesado)
+        rows.forEach(r => { delete r.evidence_pdf; });
+        res.json({ success: true, data: rows });
+    } catch (e) { console.error(e); res.status(500).json({ success: false, message: 'Error del servidor' }); }
+});
+
+// POST: Crear nueva petición de folio
+app.post('/api/folios', verifyToken, async (req, res) => {
+    try {
+        const {
+            directed_to, position, organism, subject,
+            signed_by_name, signed_by_email,
+            requested_by_name, requested_by_email,
+            area, delivery_mode, original_guard
+        } = req.body;
+
+        const [result] = await pool.query(
+            `INSERT INTO folios 
+             (directed_to, position, organism, subject, signed_by_name, signed_by_email,
+              requested_by_name, requested_by_email, area, delivery_mode, original_guard, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING')`,
+            [directed_to, position, organism, subject, signed_by_name, signed_by_email,
+             requested_by_name, requested_by_email, area, delivery_mode, original_guard ? 1 : 0]
+        );
+
+        // Notificar a Elizabeth
+        await sendEmail({
+            to: ELIZABETH_EMAIL,
+            subject: `Nueva Petición de Pre-Folio de ${requested_by_name}`,
+            title: 'Nueva Petición de Pre-Folio',
+            message: `El usuario <b>${requested_by_name}</b> (${requested_by_email}) ha solicitado un pre-folio.<br><br>
+                      <b>Dirigido a:</b> ${directed_to}<br>
+                      <b>Cargo:</b> ${position}<br>
+                      <b>Organismo:</b> ${organism}<br>
+                      <b>Asunto:</b> ${subject}<br>
+                      <b>Área:</b> ${area}<br>
+                      <b>Modo de envío:</b> ${delivery_mode}<br>
+                      <b>Resguardo Original:</b> ${original_guard ? 'Sí' : 'No'}<br><br>
+                      Por favor ingresa al sistema para aprobarlo o cancelarlo.`,
+            actionLink: 'http://localhost:3030'
+        });
+
+        res.json({ success: true, id: result.insertId });
+    } catch (e) { console.error(e); res.status(500).json({ success: false, message: 'Error del servidor' }); }
+});
+
+// PUT: Aprobar folio y asignar número (solo Elizabeth)
+app.put('/api/folios/:id/approve', verifyToken, async (req, res) => {
+    try {
+        if (req.user.email !== ELIZABETH_EMAIL) {
+            return res.status(403).json({ success: false, message: 'Solo Elizabeth puede aprobar folios' });
+        }
+
+        // Incrementar contador y generar número de folio
+        await pool.query('UPDATE folio_counter SET last_number = last_number + 1 WHERE id = 1');
+        const [[counter]] = await pool.query('SELECT last_number FROM folio_counter WHERE id = 1');
+        const year = new Date().getFullYear();
+        const folioNum = String(counter.last_number).padStart(3, '0');
+        const folioNumber = `SECTURI/DGIIT/${folioNum}/${year}`;
+
+        await pool.query(
+            `UPDATE folios SET status = 'APPROVED', folio_number = ?, approved_by = ?, approved_at = NOW() WHERE id = ?`,
+            [folioNumber, req.user.email, req.params.id]
+        );
+
+        // Notificar al solicitante
+        const [[folio]] = await pool.query('SELECT * FROM folios WHERE id = ?', [req.params.id]);
+        if (folio && folio.requested_by_email) {
+            await sendEmail({
+                to: folio.requested_by_email,
+                subject: `✅ Tu Pre-Folio ha sido Aprobado: ${folioNumber}`,
+                title: 'Pre-Folio Aprobado',
+                message: `Hola <b>${folio.requested_by_name}</b>,<br><br>
+                          Tu petición de pre-folio ha sido aprobada.<br><br>
+                          <b>Número de Folio Asignado:</b> <span style="font-size:1.2em;font-weight:bold;color:#0078d4;">${folioNumber}</span><br><br>
+                          <b>Asunto:</b> ${folio.subject}<br>
+                          <b>Dirigido a:</b> ${folio.directed_to}<br><br>
+                          Por favor ingresa al sistema para subir tu evidencia de uso.`,
+                actionLink: 'http://localhost:3030'
+            });
+        }
+
+        res.json({ success: true, folio_number: folioNumber });
+    } catch (e) { console.error(e); res.status(500).json({ success: false, message: 'Error del servidor' }); }
+});
+
+// PUT: Cancelar folio (solo Elizabeth)
+app.put('/api/folios/:id/cancel', verifyToken, async (req, res) => {
+    try {
+        if (req.user.email !== ELIZABETH_EMAIL) {
+            return res.status(403).json({ success: false, message: 'Solo Elizabeth puede cancelar folios' });
+        }
+
+        const { cancel_reason } = req.body;
+        if (!cancel_reason || !cancel_reason.trim()) {
+            return res.status(400).json({ success: false, message: 'El motivo de cancelación es obligatorio' });
+        }
+
+        await pool.query(
+            `UPDATE folios SET status = 'CANCELLED', cancel_reason = ?, cancelled_by = ?, cancelled_at = NOW() WHERE id = ?`,
+            [cancel_reason.trim(), req.user.email, req.params.id]
+        );
+
+        // Notificar al solicitante
+        const [[folio]] = await pool.query('SELECT * FROM folios WHERE id = ?', [req.params.id]);
+        if (folio && folio.requested_by_email) {
+            await sendEmail({
+                to: folio.requested_by_email,
+                subject: `❌ Tu Pre-Folio ha sido Cancelado`,
+                title: 'Pre-Folio Cancelado',
+                message: `Hola <b>${folio.requested_by_name}</b>,<br><br>
+                          Tu petición de pre-folio para el asunto <b>${folio.subject}</b> ha sido cancelada.<br><br>
+                          <b>Motivo:</b> ${cancel_reason}<br><br>
+                          Si tienes dudas, contacta a Elizabeth Martínez.`,
+                actionLink: 'http://localhost:3030'
+            });
+        }
+
+        res.json({ success: true });
+    } catch (e) { console.error(e); res.status(500).json({ success: false, message: 'Error del servidor' }); }
+});
+
+// PUT: Reasignar folio cancelado (darle nueva vida — solo Elizabeth)
+app.put('/api/folios/:id/reassign', verifyToken, async (req, res) => {
+    try {
+        if (req.user.email !== ELIZABETH_EMAIL) {
+            return res.status(403).json({ success: false, message: 'Solo Elizabeth puede reasignar folios' });
+        }
+
+        const {
+            directed_to, position, organism, subject,
+            signed_by_name, signed_by_email,
+            requested_by_name, requested_by_email,
+            area, delivery_mode, original_guard
+        } = req.body;
+
+        await pool.query(
+            `UPDATE folios SET 
+             status = 'PENDING', folio_number = NULL,
+             directed_to = ?, position = ?, organism = ?, subject = ?,
+             signed_by_name = ?, signed_by_email = ?,
+             requested_by_name = ?, requested_by_email = ?,
+             area = ?, delivery_mode = ?, original_guard = ?,
+             cancel_reason = NULL, cancelled_by = NULL, cancelled_at = NULL,
+             evidence_pdf = NULL, evidence_pdf_name = NULL, evidence_ocr_text = NULL
+             WHERE id = ?`,
+            [directed_to, position, organism, subject, signed_by_name, signed_by_email,
+             requested_by_name, requested_by_email, area, delivery_mode, original_guard ? 1 : 0,
+             req.params.id]
+        );
+
+        // Notificar al nuevo asignado
+        await sendEmail({
+            to: requested_by_email,
+            subject: `📋 Se te ha reasignado un Pre-Folio`,
+            title: 'Pre-Folio Reasignado',
+            message: `Hola <b>${requested_by_name}</b>,<br><br>
+                      Se te ha reasignado una petición de pre-folio.<br><br>
+                      <b>Asunto:</b> ${subject}<br>
+                      <b>Dirigido a:</b> ${directed_to}<br><br>
+                      Por favor ingresa al sistema para ver el detalle.`,
+            actionLink: 'http://localhost:3030'
+        });
+
+        res.json({ success: true });
+    } catch (e) { console.error(e); res.status(500).json({ success: false, message: 'Error del servidor' }); }
+});
+
+// POST: Subir evidencia PDF con OCR
+app.post('/api/folios/:id/evidence', verifyToken, uploadPDF.single('evidence'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ success: false, message: 'No se recibió archivo PDF' });
+
+        // Verificar que el folio existe y está aprobado
+        const [[folio]] = await pool.query('SELECT * FROM folios WHERE id = ?', [req.params.id]);
+        if (!folio) return res.status(404).json({ success: false, message: 'Folio no encontrado' });
+        if (folio.status !== 'APPROVED') return res.status(400).json({ success: false, message: 'Solo se puede subir evidencia a folios aprobados' });
+
+        // Extraer texto via OCR (pdf-parse)
+        let ocrText = '';
+        try {
+            const pdfData = await pdfParse(req.file.buffer);
+            ocrText = pdfData.text || '';
+        } catch (parseErr) {
+            console.warn('⚠️ OCR falló (PDF puede ser imagen sin texto):', parseErr.message);
+            ocrText = '[PDF sin texto extraíble]';
+        }
+
+        await pool.query(
+            'UPDATE folios SET evidence_pdf = ?, evidence_pdf_name = ?, evidence_ocr_text = ? WHERE id = ?',
+            [req.file.buffer, req.file.originalname, ocrText, req.params.id]
+        );
+
+        res.json({ success: true, chars_extracted: ocrText.length });
+    } catch (e) { console.error(e); res.status(500).json({ success: false, message: 'Error del servidor' }); }
+});
+
+// GET: Descargar PDF de evidencia (acepta token por header O por query param para abrir en nueva pestaña)
+app.get('/api/folios/:id/evidence', async (req, res) => {
+    try {
+        // Aceptar token vía query param como fallback (para abrir en nueva pestaña)
+        const authHeader = req.headers['authorization'];
+        const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
+        if (!token) return res.status(401).json({ success: false, message: 'No autorizado' });
+
+        let decoded;
+        try {
+            decoded = jwt.verify(token, JWT_SECRET);
+        } catch (e) {
+            return res.status(401).json({ success: false, message: 'Token inválido' });
+        }
+
+        const [[folio]] = await pool.query('SELECT evidence_pdf, evidence_pdf_name FROM folios WHERE id = ?', [req.params.id]);
+        if (!folio || !folio.evidence_pdf) return res.status(404).json({ success: false, message: 'No hay evidencia' });
+        res.set('Content-Type', 'application/pdf');
+        res.set('Content-Disposition', `inline; filename="${folio.evidence_pdf_name || 'evidencia.pdf'}"`);
+        res.send(folio.evidence_pdf);
+    } catch (e) { res.status(500).json({ success: false, message: 'Error del servidor' }); }
+});
+
+// GET: Buscar folios por texto OCR
+app.get('/api/folios/search', verifyToken, async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q) return res.json({ success: true, data: [] });
+        let rows;
+        const like = `%${q}%`;
+        if (req.user.role === 'GOD' || req.user.email === ELIZABETH_EMAIL || req.user.role === 'ADMIN') {
+            [rows] = await pool.query(
+                `SELECT id, folio_number, status, directed_to, subject, requested_by_name, created_at
+                 FROM folios WHERE evidence_ocr_text LIKE ? OR subject LIKE ? OR directed_to LIKE ? OR folio_number LIKE ?
+                 ORDER BY created_at DESC`,
+                [like, like, like, like]
+            );
+        } else {
+            [rows] = await pool.query(
+                `SELECT id, folio_number, status, directed_to, subject, requested_by_name, created_at
+                 FROM folios WHERE requested_by_email = ? AND (evidence_ocr_text LIKE ? OR subject LIKE ? OR directed_to LIKE ?)
+                 ORDER BY created_at DESC`,
+                [req.user.email, like, like, like]
+            );
+        }
+        res.json({ success: true, data: rows });
+    } catch (e) { res.status(500).json({ success: false, message: 'Error del servidor' }); }
 });
 
 // Arrancar Servidor
