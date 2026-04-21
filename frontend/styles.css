@@ -352,6 +352,8 @@ body.data-theme:has(#login-screen:not(.hidden)) {
     padding: 12px 24px;
     border-radius: 16px;
     margin-bottom: 20px;
+    position: relative;
+    z-index: 50;
 }
 
 #clock {
@@ -450,6 +452,10 @@ body.data-theme:has(#login-screen:not(.hidden)) {
     gap: 8px;
     font-weight: 800;
     font-size: 0.85rem;
+}
+
+.notif-item:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
 }
 
 .btn-logout-header {

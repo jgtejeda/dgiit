@@ -197,21 +197,15 @@ async function initAuth() {
         const pass = document.getElementById('login-pass').value;
         const result = await apiLogin(email, pass);
         if (result.success) {
-            currentUser = result.user;
-            await apiSaveLog('Inicio de sesión exitoso');
-            applyRBAC();
-            loginScreen.classList.add('hidden');
-            mainApp.classList.remove('hidden');
-            // document.getElementById('data-scene')?.classList.add('hidden-app'); /* Removido para mantener el fondo en el dashboard */
-            switchView('board-view');
             delete result.user.password;
             localStorage.setItem('sgc_user', JSON.stringify(result.user));
             currentUser = result.user;
             await apiSaveLog('Inicio de sesión exitoso');
             updateHeaderUI();
             applyRBAC();
+            loginScreen.classList.add('hidden');
+            mainApp.classList.remove('hidden');
             switchView('board-view');
-            renderBoard();
         } else {
             errorMsg.classList.remove('hidden');
             errorMsg.innerText = result.message || 'Credenciales inválidas';

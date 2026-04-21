@@ -218,6 +218,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     message: `Has creado exitosamente la ficha: <b>${taskTitle}</b> y la has asignado a ${assigneeName || 'Nadie'}.`,
                     actionLink: 'http://localhost:3030'
                 });
+                await saveAppNotification(authorEmail, 'Ficha Creada', `Creaste la ficha: ${taskTitle}`, taskData.id);
             }
             // B) Al Asignado (si es distinto al creador): "Te asignaron"
             if (assigneeEmail && assigneeEmail !== authorEmail && assigneeEmail !== 'god@sgc.pro') {
@@ -228,22 +229,26 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     message: `<b>${authorName}</b> te ha asignado la ficha: <b>${taskTitle}</b>.`,
                     actionLink: 'http://localhost:3030'
                 });
-                broadcastPush(assigneeEmail, {
+                await broadcastPush(assigneeEmail, {
                     title: '🚀 Nueva Asignación',
                     body: `${authorName} te asignó la ficha: ${taskTitle}`,
                     data: { taskId: taskData.id }
                 });
+                await saveAppNotification(assigneeEmail, 'Nueva Asignación', `${authorName} te ha asignado la ficha: ${taskTitle}`, taskData.id);
             }
             // C) A los ADMINS: "Fulano de tal hizo esto"
             const adminsToNotify = adminEmails.filter(e => e !== authorEmail);
             if (adminsToNotify.length > 0) {
-                sendEmail({
+                await sendEmail({
                     to: adminsToNotify.join(', '),
                     subject: 'Notificación de Auditoría: Ficha Creada',
                     title: 'Auditoría: Nueva Ficha',
                     message: `El usuario <b>${authorName}</b> ha creado la ficha: <b>${taskTitle}</b> y la asignó a ${assigneeName}.`,
                     actionLink: 'http://localhost:3030'
                 });
+                for (const admin of adminsToNotify) {
+                    await saveAppNotification(admin, 'Auditoría: Nueva Ficha', `${authorName} creó la ficha: ${taskTitle}`, taskData.id);
+                }
             }
         } 
         else if (eventType === 'UPDATE') {
@@ -256,87 +261,68 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     message: `Has modificado la ficha: <b>${taskTitle}</b>. Nuevo estado: ${taskData.status}. Progreso: ${taskData.progress}%.`,
                     actionLink: 'http://localhost:3030'
                 });
+                await saveAppNotification(authorEmail, 'Cambios Guardados', `Modificaste la ficha: ${taskTitle} (${taskData.progress}%)`, taskData.id);
             }
             // B) Al Asignado (si no fue quien la modificó)
             if (assigneeEmail && assigneeEmail !== authorEmail && assigneeEmail !== 'god@sgc.pro') {
-                sendEmail({
+                await sendEmail({
                     to: assigneeEmail,
                     subject: 'Cambios en tu proyecto asignado',
                     title: 'Ficha Modificada',
                     message: `<b>${authorName}</b> ha modificado tu ficha <b>${taskTitle}</b>. Nuevo estado: ${taskData.status}. Progreso: ${taskData.progress}%.`,
                     actionLink: 'http://localhost:3030'
                 });
-                broadcastPush(assigneeEmail, {
+                await broadcastPush(assigneeEmail, {
                     title: '📝 Ficha Actualizada',
                     body: `${authorName} modificó tu ficha: ${taskTitle}`,
                     data: { taskId: taskData.id }
                 });
+                await saveAppNotification(assigneeEmail, 'Ficha Modificada', `${authorName} modificó tu ficha: ${taskTitle} (${taskData.progress}%)`, taskData.id);
             }
             // C) A los ADMINS
             const adminsToNotify = adminEmails.filter(e => e !== authorEmail);
             if (adminsToNotify.length > 0) {
-                sendEmail({
+                await sendEmail({
                     to: adminsToNotify.join(', '),
                     subject: `Auditoría: Cambios en ${taskTitle}`,
                     title: 'Auditoría de Proyecto',
                     message: `El usuario <b>${authorName}</b> ha modificado la ficha <b>${taskTitle}</b>. Estado: ${taskData.status}. Progreso: ${taskData.progress}%.`,
                     actionLink: 'http://localhost:3030'
                 });
+                for (const admin of adminsToNotify) {
+                    await saveAppNotification(admin, 'Auditoría de Proyecto', `${authorName} modificó la ficha: ${taskTitle} (${taskData.progress}%)`, taskData.id);
+                }
             }
         }
         else if (eventType === 'COMMENT') {
-            // A) Al usuario que comentó (Recibo)
-            if (authorEmail && authorEmail !== 'god@sgc.pro') {
-                sendEmail({
-                    to: authorEmail,
-                    subject: 'Recibo: Has publicado un comentario',
-                    title: 'Nota Guardada',
-                    message: `En la ficha <b>${taskTitle}</b>, escribiste: <br/>"<i>${commentData.content}</i>"`,
+            // Notificar a TODOS: Admins, Autor y Responsables de la ficha
+            const [asgRows] = await pool.query('SELECT user_email FROM task_assignees WHERE task_id = ?', [taskData.id]);
+            const assigneeEmails = asgRows.map(r => r.user_email).filter(e => e); // Evitar nulls
+            
+            const allRecipients = new Set([...adminEmails, ...assigneeEmails]);
+            if (authorEmail) allRecipients.add(authorEmail);
+
+            const validRecipients = Array.from(allRecipients).filter(e => e && e.trim() !== '');
+
+            if (validRecipients.length > 0) {
+                await sendEmail({
+                    to: validRecipients.join(', '),
+                    subject: `Nuevo comentario en: ${taskTitle}`,
+                    title: 'Nota en Proyecto',
+                    message: `El usuario <b>${authorName}</b> ha comentado en la ficha <b>${taskTitle}</b>: <br/><br/>"<i>${commentData.content}</i>"`,
                     actionLink: 'http://localhost:3030'
                 });
-            }
-            // B) Lógica cruzada para el Asignado y Admins
-            if (authorRole === 'ADMIN') {
-                // Si el autor es admin, el único que necesita ser notificado fuertemente es el Asignado (estándar)
-                if (assigneeEmail && assigneeEmail !== authorEmail && assigneeEmail !== 'god@sgc.pro') {
-                    sendEmail({
-                        to: assigneeEmail,
-                        subject: `El administrador ${authorName} te está avisando algo`,
-                        title: 'Aviso del Administrador',
-                        message: `En tu ficha <b>${taskTitle}</b>, el administrador <b>${authorName}</b> te comenta: <br/>"<i>${commentData.content}</i>"`,
-                        actionLink: 'http://localhost:3030'
-                    });
-                    broadcastPush(assigneeEmail, {
-                        title: '💬 Nota de Admin',
-                        body: `${authorName}: ${commentData.content}`,
-                        data: { taskId: taskData.id }
-                    });
-                }
-            } else {
-                // Si el autor es estándar, todos los admins se enteran, y el asignado (si no es el mismo autor) se entera
-                const adminsToNotify = adminEmails.filter(e => e !== authorEmail);
-                if (adminsToNotify.length > 0) {
-                    sendEmail({
-                        to: adminsToNotify.join(', '),
-                        subject: `Auditoría: Comentario en ${taskTitle}`,
-                        title: 'Auditoría de Comentarios',
-                        message: `El usuario <b>${authorName}</b> ha comentado en <b>${taskTitle}</b>: <br/>"<i>${commentData.content}</i>"`,
-                        actionLink: 'http://localhost:3030'
-                    });
-                }
-                if (assigneeEmail && assigneeEmail !== authorEmail && assigneeEmail !== 'god@sgc.pro') {
-                    sendEmail({
-                        to: assigneeEmail,
-                        subject: `Nuevo comentario en tu ficha`,
-                        title: 'Nota en Proyecto',
-                        message: `<b>${authorName}</b> ha comentado en <b>${taskTitle}</b>: <br/>"<i>${commentData.content}</i>"`,
-                        actionLink: 'http://localhost:3030'
-                    });
-                    broadcastPush(assigneeEmail, {
-                        title: '💬 Nuevo Comentario',
-                        body: `${authorName}: ${commentData.content}`,
-                        data: { taskId: taskData.id }
-                    });
+
+                // Enviar push a todos excepto al autor
+                for (const email of validRecipients) {
+                    await saveAppNotification(email, 'Nuevo Comentario', `${authorName} comentó en ${taskTitle}`, taskData.id);
+                    if (email !== authorEmail && email !== 'god@sgc.pro') {
+                        await broadcastPush(email, {
+                            title: '💬 Nuevo Comentario',
+                            body: `${authorName}: ${commentData.content}`,
+                            data: { taskId: taskData.id }
+                        });
+                    }
                 }
             }
         }
@@ -357,6 +343,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     body: `${authorName} te agregó a la ficha: ${taskData.title}`,
                     data: { taskId: taskData.id }
                 });
+                await saveAppNotification(addedUserEmail, 'Nueva Asignación', `${authorName} te agregó a la ficha: ${taskData.title}`, taskData.id);
             }
         }
         else if (eventType === 'TODO_CREATE') {
@@ -377,6 +364,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                             body: `Se te asignó: ${taskData.label} en ${taskData.title}`,
                             data: { taskId: taskData.id }
                         });
+                        await saveAppNotification(todoUserEmail, 'Nueva Etapa', `Se te asignó la etapa: ${taskData.label}`, taskData.id);
                     }
                 }
             }
@@ -404,10 +392,28 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     message: `El usuario <b>${authorName}</b> ha ${action} la etapa: <b>${taskData.label}</b> de la ficha <b>${taskData.title}</b>.`,
                     actionLink: 'http://localhost:3030'
                 });
+                for (const email of validRecipients) {
+                    await saveAppNotification(email, title, `${authorName} ha ${action} la etapa: ${taskData.label}`, taskData.id);
+                }
             }
         }
     } catch (e) {
         console.error('Error en notificaciones contextuales:', e);
+    }
+}
+
+/**
+ * Guarda una notificación in-app en la base de datos
+ */
+async function saveAppNotification(userEmail, title, message, taskId) {
+    if (!userEmail) return;
+    try {
+        await pool.query(
+            'INSERT INTO app_notifications (user_email, title, message, task_id) VALUES (?, ?, ?, ?)',
+            [userEmail, title, message, taskId || null]
+        );
+    } catch (e) {
+        console.error('Error guardando notificación in-app:', e);
     }
 }
 
@@ -888,7 +894,7 @@ app.post('/api/tasks/:id/comments', verifyToken, async (req, res) => {
         );
         
         // Notificar usando lógica cruzada
-        sendContextualEmails('COMMENT', { id: req.params.id }, author_email, { content });
+        await sendContextualEmails('COMMENT', { id: req.params.id }, req.user.email, { content });
 
         res.json({ success: true, id: result.insertId });
     } catch (e) { res.status(500).json({ success: false }); }
@@ -936,6 +942,37 @@ app.post('/api/notifications/subscribe', verifyToken, async (req, res) => {
     } catch (error) {
         console.error('Push Subscribe Error:', error);
         res.status(500).json({ success: false, message: 'Error interno al suscribir' });
+    }
+});
+
+// --- IN-APP NOTIFICATIONS (La Campanita) ---
+app.get('/api/notifications', verifyToken, async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            'SELECT * FROM app_notifications WHERE user_email = ? ORDER BY created_at DESC LIMIT 50',
+            [req.user.email]
+        );
+        res.json({ success: true, data: rows });
+    } catch (error) {
+        res.status(500).json({ success: false, message: 'Error obteniendo notificaciones' });
+    }
+});
+
+app.put('/api/notifications/:id/read', verifyToken, async (req, res) => {
+    try {
+        await pool.query('UPDATE app_notifications SET is_read = 1 WHERE id = ? AND user_email = ?', [req.params.id, req.user.email]);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false });
+    }
+});
+
+app.put('/api/notifications/read-all', verifyToken, async (req, res) => {
+    try {
+        await pool.query('UPDATE app_notifications SET is_read = 1 WHERE user_email = ?', [req.user.email]);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ success: false });
     }
 });
 

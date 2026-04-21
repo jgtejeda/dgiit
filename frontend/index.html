@@ -113,6 +113,23 @@
                 <div class="weather-widget glass-pill">
                     <i data-lucide="cloud" class="w-icon"></i><span class="w-temp">24°C</span>
                 </div>
+                <!-- Notifications Bell -->
+                <div class="notifications-widget" style="position: relative;">
+                    <button class="btn-logout-header" id="notifications-toggle" title="Notificaciones" style="background: rgba(255,255,255,0.05); color: var(--text-color); border: 1px solid rgba(255,255,255,0.1); position: relative;">
+                        <i data-lucide="bell"></i>
+                        <span id="notif-badge" style="position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; font-size: 0.6rem; font-weight: bold; border-radius: 50%; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; opacity: 1; transition: opacity 0.3s;">3</span>
+                    </button>
+                    <!-- Dropdown -->
+                    <div id="notifications-dropdown" class="glass-premium hidden" style="position: absolute; top: 120%; right: 0; width: 320px; max-height: 400px; overflow-y: auto; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); z-index: 1000; flex-direction: column;">
+                        <div style="padding: 15px; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="margin: 0; font-size: 0.9rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px;">Notificaciones</h3>
+                            <button id="mark-all-read" style="background: none; border: none; color: var(--corp-blue, #3b82f6); cursor: pointer; font-size: 0.75rem; font-weight: 700;">Marcar leídas</button>
+                        </div>
+                        <div id="notif-list" style="display: flex; flex-direction: column;">
+                            <!-- Items dinámicos insertados por JS -->
+                        </div>
+                    </div>
+                </div>
                 <button class="btn-logout-header" id="theme-toggle" title="Cambiar Tema" style="background: rgba(255,255,255,0.05); color: var(--text-color); border: 1px solid rgba(255,255,255,0.1);">
                     <i data-lucide="moon" id="theme-icon"></i>
                 </button>
