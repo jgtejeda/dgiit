@@ -68,6 +68,24 @@ function switchView(viewId) {
     refreshIcons();
 }
 
+window.openModal = function(modal) {
+    if (!modal) return;
+    modal.classList.remove('hidden');
+};
+
+window.closeModal = function(modal) {
+    if (!modal) return;
+    modal.classList.add('hidden');
+};
+
+// Global escape key listener to close modals
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(m => window.closeModal(m));
+    }
+});
+
+
 // --- 4. AUTHENTICATION ---
 function initAuth() {
     const loginForm = document.getElementById('data-login-form');

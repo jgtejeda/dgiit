@@ -109,6 +109,11 @@ async function handlePushButtonClick() {
     }
 }
 
+// Inicialización
+document.addEventListener('DOMContentLoaded', () => {
+    initPushNotificationUI();
+});
+
 // Escuchar eventos usando delegación para mayor robustez
 document.addEventListener('click', e => {
     const pushBtn = e.target.closest('#btn-toggle-push');
