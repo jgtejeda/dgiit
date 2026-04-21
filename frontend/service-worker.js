@@ -1,7 +1,7 @@
 /* DGIIT | SECTURI — Service Worker v1.0 */
 
-const CACHE_NAME = 'dgiit-secturi-v1.5';
-const CDN_CACHE  = 'dgiit-secturi-cdn-v1.5';
+const CACHE_NAME = 'dgiit-secturi-v1.6';
+const CDN_CACHE  = 'dgiit-secturi-cdn-v1.6';
 
 const APP_SHELL = [
     '/',

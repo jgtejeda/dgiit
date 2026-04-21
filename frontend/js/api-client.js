@@ -4,7 +4,9 @@
  */
 
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const API_BASE_URL = isLocal ? 'http://localhost:4001/api' : '/api-dgiit/api';
+// Si el sitio está en /dgiit/, la API suele estar en /dgiit/api o similar. 
+// Usamos una ruta relativa para que se adapte al despliegue.
+const API_BASE_URL = isLocal ? 'http://localhost:4001/api' : (window.location.pathname.includes('/dgiit/') ? '/dgiit/api' : '/api');
 
 const apiClient = {
     // --- SESIÓN ---

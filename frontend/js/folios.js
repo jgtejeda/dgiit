@@ -22,7 +22,7 @@ const folioAPI = {
         formData.append('evidence', file);
         const token = apiClient.getToken();
         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const base = isLocal ? 'http://localhost:4001/api' : '/api-dgiit/api';
+        const base = isLocal ? 'http://localhost:4001/api' : (window.location.pathname.includes('/dgiit/') ? '/dgiit/api' : '/api');
         return fetch(`${base}/folios/${id}/evidence`, {
             method: 'POST',
             headers: token ? { 'Authorization': `Bearer ${token}` } : {},
@@ -437,7 +437,7 @@ window.viewFolioPDF = async (id, filename) => {
 
     try {
         const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-        const base    = isLocal ? 'http://localhost:4001/api' : '/api-dgiit/api';
+        const base    = isLocal ? 'http://localhost:4001/api' : (window.location.pathname.includes('/dgiit/') ? '/dgiit/api' : '/api');
         const token   = apiClient.getToken();
 
         const res = await fetch(`${base}/folios/${id}/evidence`, {
