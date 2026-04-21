@@ -207,17 +207,16 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
         // ==========================================
         // LÓGICA DE DISTRIBUCIÓN Y MENSAJES
         // ==========================================
-        // ==========================================
-
+        
         if (eventType === 'CREATE') {
             // A) Al usuario creador: "Inf que hizo"
-            if (authorEmail && authorEmail !== 'god@sgc.pro') {
-                sendEmail({
+            if (authorEmail) {
+                await sendEmail({
                     to: authorEmail,
                     subject: 'Recibo: Has creado una nueva ficha',
                     title: 'Ficha Creada',
                     message: `Has creado exitosamente la ficha: <b>${taskTitle}</b> y la has asignado a ${assigneeName || 'Nadie'}.`,
-                    actionLink: 'http://localhost:8080'
+                    actionLink: 'http://localhost:3030'
                 });
             }
             // B) Al Asignado (si es distinto al creador): "Te asignaron"
@@ -227,7 +226,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     subject: 'Se te ha asignado un nuevo proyecto',
                     title: 'Nueva Asignación',
                     message: `<b>${authorName}</b> te ha asignado la ficha: <b>${taskTitle}</b>.`,
-                    actionLink: 'http://localhost:8080'
+                    actionLink: 'http://localhost:3030'
                 });
                 broadcastPush(assigneeEmail, {
                     title: '🚀 Nueva Asignación',
@@ -243,19 +242,19 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     subject: 'Notificación de Auditoría: Ficha Creada',
                     title: 'Auditoría: Nueva Ficha',
                     message: `El usuario <b>${authorName}</b> ha creado la ficha: <b>${taskTitle}</b> y la asignó a ${assigneeName}.`,
-                    actionLink: 'http://localhost:8080'
+                    actionLink: 'http://localhost:3030'
                 });
             }
         } 
         else if (eventType === 'UPDATE') {
             // A) Al usuario que hizo la modificación
-            if (authorEmail && authorEmail !== 'god@sgc.pro') {
-                sendEmail({
+            if (authorEmail) {
+                await sendEmail({
                     to: authorEmail,
                     subject: 'Recibo: Has modificado una ficha',
                     title: 'Cambios Guardados',
                     message: `Has modificado la ficha: <b>${taskTitle}</b>. Nuevo estado: ${taskData.status}. Progreso: ${taskData.progress}%.`,
-                    actionLink: 'http://localhost:8080'
+                    actionLink: 'http://localhost:3030'
                 });
             }
             // B) Al Asignado (si no fue quien la modificó)
@@ -265,7 +264,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     subject: 'Cambios en tu proyecto asignado',
                     title: 'Ficha Modificada',
                     message: `<b>${authorName}</b> ha modificado tu ficha <b>${taskTitle}</b>. Nuevo estado: ${taskData.status}. Progreso: ${taskData.progress}%.`,
-                    actionLink: 'http://localhost:8080'
+                    actionLink: 'http://localhost:3030'
                 });
                 broadcastPush(assigneeEmail, {
                     title: '📝 Ficha Actualizada',
@@ -281,7 +280,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     subject: `Auditoría: Cambios en ${taskTitle}`,
                     title: 'Auditoría de Proyecto',
                     message: `El usuario <b>${authorName}</b> ha modificado la ficha <b>${taskTitle}</b>. Estado: ${taskData.status}. Progreso: ${taskData.progress}%.`,
-                    actionLink: 'http://localhost:8080'
+                    actionLink: 'http://localhost:3030'
                 });
             }
         }
@@ -293,7 +292,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                     subject: 'Recibo: Has publicado un comentario',
                     title: 'Nota Guardada',
                     message: `En la ficha <b>${taskTitle}</b>, escribiste: <br/>"<i>${commentData.content}</i>"`,
-                    actionLink: 'http://localhost:8080'
+                    actionLink: 'http://localhost:3030'
                 });
             }
             // B) Lógica cruzada para el Asignado y Admins
@@ -305,7 +304,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                         subject: `El administrador ${authorName} te está avisando algo`,
                         title: 'Aviso del Administrador',
                         message: `En tu ficha <b>${taskTitle}</b>, el administrador <b>${authorName}</b> te comenta: <br/>"<i>${commentData.content}</i>"`,
-                        actionLink: 'http://localhost:8080'
+                        actionLink: 'http://localhost:3030'
                     });
                     broadcastPush(assigneeEmail, {
                         title: '💬 Nota de Admin',
@@ -322,7 +321,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                         subject: `Auditoría: Comentario en ${taskTitle}`,
                         title: 'Auditoría de Comentarios',
                         message: `El usuario <b>${authorName}</b> ha comentado en <b>${taskTitle}</b>: <br/>"<i>${commentData.content}</i>"`,
-                        actionLink: 'http://localhost:8080'
+                        actionLink: 'http://localhost:3030'
                     });
                 }
                 if (assigneeEmail && assigneeEmail !== authorEmail && assigneeEmail !== 'god@sgc.pro') {
@@ -331,7 +330,7 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                         subject: `Nuevo comentario en tu ficha`,
                         title: 'Nota en Proyecto',
                         message: `<b>${authorName}</b> ha comentado en <b>${taskTitle}</b>: <br/>"<i>${commentData.content}</i>"`,
-                        actionLink: 'http://localhost:8080'
+                        actionLink: 'http://localhost:3030'
                     });
                     broadcastPush(assigneeEmail, {
                         title: '💬 Nuevo Comentario',
@@ -339,6 +338,72 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
                         data: { taskId: taskData.id }
                     });
                 }
+            }
+        }
+        else if (eventType === 'ADD_ASSIGNEE') {
+            const addedUserEmail = taskData.added_user_email;
+            const addedUserName = taskData.added_user_name;
+
+            if (addedUserEmail && addedUserEmail !== authorEmail && addedUserEmail !== 'god@sgc.pro') {
+                await sendEmail({
+                    to: addedUserEmail,
+                    subject: 'Te han asignado a un nuevo proyecto',
+                    title: 'Nueva Asignación',
+                    message: `Hola <b>${addedUserName}</b>, el usuario <b>${authorName}</b> te ha agregado como responsable en la ficha: <b>${taskData.title}</b>.`,
+                    actionLink: 'http://localhost:3030'
+                });
+                await broadcastPush(addedUserEmail, {
+                    title: '🚀 Nueva Asignación',
+                    body: `${authorName} te agregó a la ficha: ${taskData.title}`,
+                    data: { taskId: taskData.id }
+                });
+            }
+        }
+        else if (eventType === 'TODO_CREATE') {
+            if (taskData.assigned_to_name) {
+                const [asgRows] = await pool.query('SELECT email FROM users WHERE name = ?', [taskData.assigned_to_name]);
+                if (asgRows.length) {
+                    const todoUserEmail = asgRows[0].email;
+                    if (todoUserEmail && todoUserEmail !== 'god@sgc.pro') {
+                        await sendEmail({
+                            to: todoUserEmail,
+                            subject: 'Nueva etapa asignada',
+                            title: 'Nueva Etapa',
+                            message: `Hola, se ha añadido la etapa: <b>${taskData.label}</b> en la ficha <b>${taskData.title}</b> y se te ha asignado como responsable.`,
+                            actionLink: 'http://localhost:3030'
+                        });
+                        await broadcastPush(todoUserEmail, {
+                            title: '📝 Nueva Etapa',
+                            body: `Se te asignó: ${taskData.label} en ${taskData.title}`,
+                            data: { taskId: taskData.id }
+                        });
+                    }
+                }
+            }
+        }
+        else if (eventType === 'TODO_COMPLETE' || eventType === 'TODO_DELETE') {
+            // Notificar a TODOS: Admins, Autor y Responsables de la ficha
+            const [asgRows] = await pool.query('SELECT user_email FROM task_assignees WHERE task_id = ?', [taskData.id]);
+            const assigneeEmails = asgRows.map(r => r.user_email).filter(e => e); // Evitar nulls
+            
+            const allRecipients = new Set([...adminEmails, ...assigneeEmails]);
+            if (authorEmail) allRecipients.add(authorEmail);
+
+            // Filtrar cualquier valor nulo o vacío por si acaso
+            const validRecipients = Array.from(allRecipients).filter(e => e && e.trim() !== '');
+
+            const subject = eventType === 'TODO_COMPLETE' ? `Etapa terminada: ${taskData.label}` : `Etapa eliminada: ${taskData.label}`;
+            const title = eventType === 'TODO_COMPLETE' ? 'Etapa Completada' : 'Etapa Eliminada';
+            const action = eventType === 'TODO_COMPLETE' ? 'marcado como terminada' : 'eliminado';
+            
+            if (validRecipients.length > 0) {
+                await sendEmail({
+                    to: validRecipients.join(', '),
+                    subject: subject,
+                    title: title,
+                    message: `El usuario <b>${authorName}</b> ha ${action} la etapa: <b>${taskData.label}</b> de la ficha <b>${taskData.title}</b>.`,
+                    actionLink: 'http://localhost:3030'
+                });
             }
         }
     } catch (e) {
@@ -374,7 +439,10 @@ async function broadcastPush(userEmail, payload) {
 
 app.post('/api/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
+        let { email, password } = req.body;
+        if (email) email = email.trim();
+        if (password) password = password.trim();
+
         const [rows] = await pool.query(
             'SELECT id, email, name, role, position, department, password, photo FROM users WHERE email = ?',
             [email]
@@ -390,10 +458,13 @@ app.post('/api/login', async (req, res) => {
                 isMatch = await bcrypt.compare(password, dbPassword);
             } catch (e) {
                 isMatch = false;
+                require('fs').appendFileSync('login_debug.log', `Bcrypt error for ${email}: ${e.message}\n`);
             }
 
             // 2. Fallback: Comparar texto plano (migración)
             const isPlainTextMatch = (password === dbPassword);
+            
+            require('fs').appendFileSync('login_debug.log', `Login attempt for ${email}: isMatch=${isMatch}, isPlainTextMatch=${isPlainTextMatch}\n`);
 
             if (isMatch || isPlainTextMatch) {
                 // Si hizo match con texto plano, actualizar a hash automáticamente
@@ -461,7 +532,9 @@ app.post('/api/users', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res
 app.put('/api/users/:id', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { email, name, role, position, department, password, photo } = req.body;
+        let { email, name, role, position, department, password, photo } = req.body;
+        
+        if (password) password = password.trim();
         
         // Solo ADMIN/GOD pueden editar a otros. Los usuarios normales solo pueden editarse a sí mismos (vía /api/profile).
         if (req.user.role === 'USER' && req.user.id != id) {
@@ -492,8 +565,10 @@ app.put('/api/users/:id', verifyToken, async (req, res) => {
 app.put('/api/profile', verifyToken, async (req, res) => {
     console.log('📬 Petición recibida en /api/profile');
     try {
-        const { name, position, department, password, photo } = req.body;
         const userEmail = req.user.email;
+        let { name, position, department, password, photo } = req.body;
+
+        if (password) password = password.trim();
 
         if (photo) {
             console.log(`📸 Recibiendo foto para ${userEmail}. Tamaño: ${photo.length} bytes`);
@@ -585,7 +660,14 @@ app.get('/api/tasks', verifyToken, async (req, res) => {
 
 app.post('/api/tasks', verifyToken, async (req, res) => {
     try {
-        const { title, description, status = 'TODO', assignee, deadline, priority = 'MEDIA', author_email } = req.body;
+        const { 
+            title = '', 
+            description = '', 
+            status = 'TODO', 
+            assignee = '', 
+            deadline = null, 
+            priority = 'MEDIA'
+        } = req.body;
         const formattedDate = formatMySQLDate(deadline);
         const progress = 0;
         const [result] = await pool.query(
@@ -594,7 +676,7 @@ app.post('/api/tasks', verifyToken, async (req, res) => {
         );
         
         // Notificar usando lógica cruzada
-        sendContextualEmails('CREATE', { id: result.insertId, title, assignee, status, progress }, author_email);
+        await sendContextualEmails('CREATE', { id: result.insertId, title, assignee, status, progress }, req.user.email);
 
         res.json({ success: true, id: result.insertId });
     } catch (error) {
@@ -608,7 +690,7 @@ app.put('/api/tasks/:id', verifyToken, async (req, res) => {
         const { id } = req.params;
         const {
             title = '', description = '', status = 'TODO',
-            assignee = '', deadline = null, priority = 'MEDIA', progress = 0, author_email
+            assignee = '', deadline = null, priority = 'MEDIA', progress = 0
         } = req.body;
 
         const formattedDate = formatMySQLDate(deadline);
@@ -620,7 +702,7 @@ app.put('/api/tasks/:id', verifyToken, async (req, res) => {
         );
 
         // Notificar usando lógica cruzada
-        sendContextualEmails('UPDATE', { id, title, assignee, status, progress: finalProgress }, author_email);
+        await sendContextualEmails('UPDATE', { id, title, assignee, status, progress: finalProgress }, req.user.email);
 
         console.log(`✅ Tarea ${id} actualizada → status: ${status}, progress: ${finalProgress}%`);
         res.json({ success: true, progress: finalProgress });
@@ -660,13 +742,31 @@ app.post('/api/tasks/:id/todos', verifyToken, async (req, res) => {
             'INSERT INTO task_todos (task_id, label, assigned_to) VALUES (?, ?, ?)',
             [req.params.id, label, assigned_to || null]
         );
+
+        // Notificar al asignado de la etapa
+        const [taskRows] = await pool.query('SELECT title FROM tasks WHERE id = ?', [req.params.id]);
+        if (taskRows.length && assigned_to) {
+            await sendContextualEmails('TODO_CREATE', {
+                id: req.params.id,
+                title: taskRows[0].title,
+                label: label,
+                assigned_to_name: assigned_to
+            }, req.user.email);
+        }
+
         res.json({ success: true, id: result.insertId });
     } catch (e) { res.status(500).json({ success: false }); }
 });
 
 app.put('/api/todos/:id', verifyToken, async (req, res) => {
     try {
+        require('fs').appendFileSync('notify_debug2.log', `PUT /api/todos/${req.params.id}\n`);
         const { is_done, assigned_to } = req.body;
+        
+        // Obtener info antes de actualizar para la notificación
+        const [todoRows] = await pool.query('SELECT t.title, td.label, td.task_id FROM task_todos td JOIN tasks t ON t.id = td.task_id WHERE td.id = ?', [req.params.id]);
+        require('fs').appendFileSync('notify_debug2.log', `todoRows length: ${todoRows.length}, is_done: ${is_done}\n`);
+
         if (assigned_to !== undefined) {
             await pool.query(
                 'UPDATE task_todos SET is_done = ?, assigned_to = ? WHERE id = ?',
@@ -675,8 +775,22 @@ app.put('/api/todos/:id', verifyToken, async (req, res) => {
         } else {
             await pool.query('UPDATE task_todos SET is_done = ? WHERE id = ?', [is_done ? 1 : 0, req.params.id]);
         }
+
+        if (todoRows.length && is_done) {
+            require('fs').appendFileSync('notify_debug2.log', `Calling sendContextualEmails TODO_COMPLETE\n`);
+            await sendContextualEmails('TODO_COMPLETE', {
+                id: todoRows[0].task_id,
+                title: todoRows[0].title,
+                label: todoRows[0].label
+            }, req.user.email);
+            require('fs').appendFileSync('notify_debug2.log', `Finished sendContextualEmails TODO_COMPLETE\n`);
+        }
+
         res.json({ success: true });
-    } catch (e) { res.status(500).json({ success: false }); }
+    } catch (e) { 
+        require('fs').appendFileSync('notify_debug2.log', `Error: ${e.message}\n`);
+        res.status(500).json({ success: false }); 
+    }
 });
 
 // ============================================
@@ -700,6 +814,18 @@ app.post('/api/tasks/:id/assignees', verifyToken, async (req, res) => {
             'INSERT IGNORE INTO task_assignees (task_id, user_name, user_email) VALUES (?, ?, ?)',
             [req.params.id, user_name, user_email || null]
         );
+
+        // Notificar al nuevo responsable
+        const [taskRows] = await pool.query('SELECT title FROM tasks WHERE id = ?', [req.params.id]);
+        if (taskRows.length && user_email) {
+            sendContextualEmails('ADD_ASSIGNEE', { 
+                id: req.params.id, 
+                title: taskRows[0].title,
+                added_user_name: user_name,
+                added_user_email: user_email
+            }, req.user.email);
+        }
+
         res.json({ success: true });
     } catch (e) { res.status(500).json({ success: false }); }
 });
@@ -716,9 +842,27 @@ app.delete('/api/tasks/:id/assignees/:email', verifyToken, async (req, res) => {
 
 app.delete('/api/todos/:id', verifyToken, async (req, res) => {
     try {
+        require('fs').appendFileSync('notify_debug2.log', `DELETE /api/todos/${req.params.id}\n`);
+        const [todoRows] = await pool.query('SELECT t.title, td.label, td.task_id FROM task_todos td JOIN tasks t ON t.id = td.task_id WHERE td.id = ?', [req.params.id]);
+        require('fs').appendFileSync('notify_debug2.log', `todoRows length: ${todoRows.length}\n`);
+
         await pool.query('DELETE FROM task_todos WHERE id = ?', [req.params.id]);
+
+        if (todoRows.length) {
+            require('fs').appendFileSync('notify_debug2.log', `Calling sendContextualEmails TODO_DELETE\n`);
+            await sendContextualEmails('TODO_DELETE', {
+                id: todoRows[0].task_id,
+                title: todoRows[0].title,
+                label: todoRows[0].label
+            }, req.user.email);
+            require('fs').appendFileSync('notify_debug2.log', `Finished sendContextualEmails TODO_DELETE\n`);
+        }
+
         res.json({ success: true });
-    } catch (e) { res.status(500).json({ success: false }); }
+    } catch (e) { 
+        require('fs').appendFileSync('notify_debug2.log', `Error in DELETE: ${e.message}\n`);
+        res.status(500).json({ success: false }); 
+    }
 });
 
 // ============================================
