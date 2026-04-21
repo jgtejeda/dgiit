@@ -107,11 +107,31 @@
                 <button class="nav-btn" data-view="archive-view" id="nav-archive">
                     <i data-lucide="archive"></i><span>Archivo</span>
                 </button>
+                <button class="nav-btn" data-view="view-folios" id="nav-folios">
+                    <i data-lucide="file-text"></i><span>Folios</span>
+                </button>
             </nav>
 
             <div class="h-right">
                 <div class="weather-widget glass-pill">
                     <i data-lucide="cloud" class="w-icon"></i><span class="w-temp">24°C</span>
+                </div>
+
+                <!-- Centro de Notificaciones -->
+                <div class="notif-wrapper">
+                    <button class="header-icon-btn glass-pill" id="btn-notif-center" title="Notificaciones">
+                        <i data-lucide="bell"></i>
+                        <span id="notif-badge" class="notif-badge hidden">0</span>
+                    </button>
+                    <div id="notif-dropdown" class="notif-dropdown glass-premium hidden">
+                        <div class="notif-header">
+                            <h3>Notificaciones</h3>
+                            <button id="btn-mark-all-read">Marcar todas como leídas</button>
+                        </div>
+                        <div id="notif-list" class="notif-list">
+                            <div class="notif-empty">No tienes notificaciones pendientes</div>
+                        </div>
+                    </div>
                 </div>
                 <button class="btn-logout-header" id="theme-toggle" title="Cambiar Tema" style="background: rgba(255,255,255,0.05); color: var(--text-color); border: 1px solid rgba(255,255,255,0.1);">
                     <i data-lucide="moon" id="theme-icon"></i>
@@ -278,6 +298,17 @@
                                         </select>
                                     </div>
                                 </div>
+                                <div class="corp-input-group">
+                                    <label>Tipo de Usuario</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="settings"></i>
+                                        <select id="new-user-access">
+                                            <option value="AMBOS" selected>Ambos (Fichas y Folios)</option>
+                                            <option value="FICHAS">Solo Fichas</option>
+                                            <option value="FOLIOS">Solo Folios</option>
+                                        </select>
+                                    </div>
+                                </div>
                                 <button type="submit" class="btn-corporate" style="margin-top: 10px;">CREAR ACCESO</button>
                             </form>
                         </div>
@@ -321,6 +352,112 @@
                 </div>
             </section>
 
+            <!-- VIEW 5: PRE-FOLIO -->
+            <section id="view-folios" class="view-section hidden">
+                <div class="folios-container full-view-container glass-premium">
+                    <div class="view-header" style="margin-bottom: 5px;">
+                        <h2 style="color: var(--corp-light);"><i data-lucide="file-text" style="display:inline-block; vertical-align:middle; width:28px; height:28px;"></i> GESTIÓN DE PRE-FOLIOS</h2>
+                        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px;">Solicitud, asignación y cierre de folios oficiales.</p>
+                    </div>
+                    
+                    <div class="folios-grid">
+                        <!-- Panel Solicitud -->
+                        <div class="new-folio-panel">
+                            <h3 style="font-size: 0.9rem; margin-bottom: 20px; color: var(--corp-light); border-bottom: 1px solid var(--border-subtle); padding-bottom: 10px;">
+                                <i data-lucide="plus-circle" style="width:16px;height:16px;"></i> Nueva Solicitud
+                            </h3>
+                            <form id="new-folio-form" autocomplete="off">
+                                <div class="corp-input-group" style="margin-bottom: 15px;">
+                                    <label>Asunto (Obligatorio)</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="edit-3"></i>
+                                        <input type="text" name="asunto" placeholder="Ej: Solicitud de viáticos..." required>
+                                    </div>
+                                </div>
+                                <div class="corp-input-group" style="margin-bottom: 15px;">
+                                    <label>Dirigido a (Obligatorio)</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="user"></i>
+                                        <input type="text" name="dirigido_a" placeholder="Nombre de quien recibe" required>
+                                    </div>
+                                </div>
+                                <div class="corp-input-group" style="margin-bottom: 15px;">
+                                    <label>Cargo del Destinatario (Obligatorio)</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="briefcase"></i>
+                                        <input type="text" name="cargo_dest" placeholder="Ej: Director General" required>
+                                    </div>
+                                </div>
+                                <div class="corp-input-group" style="margin-bottom: 15px;">
+                                    <label>Organismo/Dependencia (Obligatorio)</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="building"></i>
+                                        <input type="text" name="organismo" placeholder="Ej: Secretaría de Finanzas" required>
+                                    </div>
+                                </div>
+                                <div class="corp-input-group" style="margin-bottom: 15px;">
+                                    <label>Quien Firma (Obligatorio)</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="pen-tool"></i>
+                                        <input type="text" name="quien_firma" placeholder="Nombre de quien firma" required>
+                                    </div>
+                                </div>
+                                <div class="corp-input-group" style="margin-bottom: 15px;">
+                                    <label>Área de Resguardo Original (Obligatorio)</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="archive"></i>
+                                        <input type="text" name="area_resguardo" placeholder="Ej: Archivo Central DGIIT" required>
+                                    </div>
+                                </div>
+                                <div class="corp-input-group" style="margin-bottom: 25px;">
+                                    <label>Medio de Envío (Obligatorio)</label>
+                                    <div class="corp-field">
+                                        <i data-lucide="send"></i>
+                                        <select name="medio_envio" required style="width: 100%; background: transparent; border: none; color: inherit; padding: 10px; outline: none; font-family: inherit;">
+                                            <option value="PAM" style="color:#000;">PAM</option>
+                                            <option value="FIRMA_AUTOGRAFA" style="color:#000;">Firma Autógrafa</option>
+                                            <option value="PAM_Y_FIRMA" style="color:#000;">PAM y Firma Autógrafa</option>
+                                            <option value="CORREO" style="color:#000;">Por Correo</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn-corporate" style="width: 100%;">
+                                    <i data-lucide="send"></i> Enviar Solicitud
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Panel Lista -->
+                        <div class="folios-list-panel">
+                            <div class="folios-search">
+                                <div class="filter-row" style="margin: 0;">
+                                    <i data-lucide="search"></i>
+                                    <input type="text" id="folios-search-input" placeholder="Buscar por número, asunto..." style="width: 100%; padding: 12px 12px 12px 40px; border-radius: 12px; background: var(--bg-input); border: 1px solid var(--border-subtle); color: var(--text-color);">
+                                </div>
+                            </div>
+
+                            <div class="folios-filter-tabs">
+                                <button class="folio-tab active" data-status="TODOS">Todos</button>
+                                <button class="folio-tab" data-status="PENDIENTE">Pendientes</button>
+                                <button class="folio-tab" data-status="ASIGNADO">En Uso</button>
+                                <button class="folio-tab" data-status="CERRADO">Cerrados</button>
+                                <button class="folio-tab" data-status="CANCELADO">Cancelados</button>
+                            </div>
+
+                            <div id="folios-list" class="folios-list">
+                                <!-- Populated by JS -->
+                            </div>
+
+                            <div id="folios-load-more-container" class="load-more-container hidden" style="text-align: center; padding: 15px 0;">
+                                <button id="btn-folios-load-more" class="btn-corporate" style="background: var(--bg-glass-slider); border: 1px solid var(--corp-light); font-size: 0.8rem; padding: 10px 20px;">
+                                    Cargar más folios...
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
         </main>
 
         <!-- Bottom Navigation — solo visible en móvil vía CSS -->
@@ -329,6 +466,11 @@
                     onclick="document.getElementById('nav-board').click()" aria-label="Tablero">
                 <i data-lucide="columns-3"></i>
                 <span>Tablero</span>
+            </button>
+            <button class="mobile-nav-btn" id="mobile-btn-folios"
+                    onclick="document.getElementById('nav-folios').click()" aria-label="Folios">
+                <i data-lucide="file-text"></i>
+                <span>Folios</span>
             </button>
             <button class="mobile-nav-btn" id="mobile-btn-bitacora"
                     onclick="document.getElementById('nav-bitacora').click()" aria-label="Bitácora">
@@ -505,6 +647,8 @@
         </div>
     </div>
 
+
+
     <!-- ============================================================ -->
     <!-- CUSTOM DIALOGS FOR EDIT & DELETE                             -->
     <!-- ============================================================ -->
@@ -599,10 +743,171 @@
         </div>
     </div>
 
+    <!-- ===== MODAL: ASSIGN FOLIO ===== -->
+    <div id="modal-assign-folio" class="modal-overlay hidden">
+        <div class="modal-content glass-premium animate-fade-in" style="max-width: 450px;">
+            <div class="modal-header-row">
+                <h2><i data-lucide="hash"></i> Asignar Folio</h2>
+                <button class="btn-close-modal" onclick="window.closeModal(document.getElementById('modal-assign-folio'))"><i data-lucide="x"></i></button>
+            </div>
+            <form id="form-assign-folio">
+                <p style="font-size: 0.85rem; color: var(--text-color); margin-bottom: 20px;">
+                    Asignando número de folio oficial para la solicitud ID #<span id="folio-assign-id-display" style="font-weight: bold; color: var(--corp-light);"></span>.
+                </p>
+                <div class="corp-input-group">
+                    <label>Número de Folio (Opcional)</label>
+                    <div class="corp-field">
+                        <i data-lucide="edit-2"></i>
+                        <input type="text" id="folio_number_manual" placeholder="Ej: SECTURI/DGIIT/001/2026">
+                    </div>
+                    <p class="progress-hint" style="margin-top: 5px;">Si se deja en blanco, el sistema autoincrementará el último folio registrado. (Solo para inicializar usa el manual).</p>
+                </div>
+                <button type="submit" id="btn-submit-assign" class="btn-corporate" style="margin-top: 20px; width: 100%;">Asignar Folio</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===== MODAL: UPLOAD PDF ===== -->
+    <div id="modal-upload-pdf" class="modal-overlay hidden">
+        <div class="modal-content glass-premium animate-fade-in" style="max-width: 450px;">
+            <div class="modal-header-row">
+                <h2><i data-lucide="upload-cloud"></i> Cargar Evidencia</h2>
+                <button class="btn-close-modal" onclick="window.closeModal(document.getElementById('modal-upload-pdf'))"><i data-lucide="x"></i></button>
+            </div>
+            <form id="form-upload-pdf">
+                <p style="font-size: 0.85rem; color: var(--text-color); margin-bottom: 20px;">
+                    Sube el PDF firmado escaneado (con OCR para búsqueda ideal) para la solicitud ID #<span id="folio-upload-id-display" style="font-weight: bold; color: var(--corp-light);"></span>.
+                </p>
+                <div class="corp-input-group">
+                    <label>Archivo PDF (Máx 20MB)</label>
+                    <div class="corp-field" style="padding: 10px;">
+                        <input type="file" id="pdf-upload-input" accept="application/pdf" required style="width: 100%; border: none; background: transparent; color: var(--text-color);">
+                    </div>
+                </div>
+                <button type="submit" id="btn-submit-upload" class="btn-corporate" style="margin-top: 20px; width: 100%;">Subir y Cerrar Folio</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===== MODAL: CANCEL FOLIO ===== -->
+    <div id="modal-cancel-folio" class="modal-overlay hidden">
+        <div class="modal-content glass-premium animate-fade-in" style="max-width: 450px;">
+            <div class="modal-header-row">
+                <h2 style="color: #ff5555;"><i data-lucide="alert-triangle"></i> Cancelar Folio</h2>
+                <button class="btn-close-modal" onclick="window.closeModal(document.getElementById('modal-cancel-folio'))"><i data-lucide="x"></i></button>
+            </div>
+            <form id="form-cancel-folio">
+                <p style="font-size: 0.85rem; color: var(--text-color); margin-bottom: 20px;">
+                    Proporciona un motivo para cancelar esta solicitud. Se guardará en el historial.
+                </p>
+                <div class="corp-input-group">
+                    <label>Motivo de Cancelación</label>
+                    <div class="corp-field" style="height: auto;">
+                        <textarea id="folio-cancel-reason" required rows="3" style="width: 100%; padding: 10px; background: transparent; border: none; color: var(--text-color); resize: none;" placeholder="El documento ya no es necesario..."></textarea>
+                    </div>
+                </div>
+                <button type="submit" id="btn-submit-cancel" class="btn-corporate" style="margin-top: 20px; width: 100%; background: #ff5555; border-color: #ff5555;">Confirmar Cancelación</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===== MODAL: REOPEN FOLIO ===== -->
+    <div id="modal-reopen-folio" class="modal-overlay hidden">
+        <div class="modal-content glass-premium animate-fade-in" style="max-width: 600px; width: 90%;">
+            <div class="modal-header-row">
+                <h2><i data-lucide="refresh-cw"></i> Reabrir / Nueva Identidad</h2>
+                <button class="btn-close-modal" onclick="window.closeModal(document.getElementById('modal-reopen-folio'))"><i data-lucide="x"></i></button>
+            </div>
+            <form id="form-reopen-folio" autocomplete="off">
+                <input type="hidden" id="reopen-folio-id">
+                <p style="font-size: 0.85rem; color: var(--text-color); margin-bottom: 20px;">
+                    Dándole una nueva identidad al folio ID #<span id="reopen-folio-id-display" style="font-weight: bold; color: var(--corp-light);"></span>. 
+                    Todos los datos de cancelación se borrarán y volverá a estado PENDIENTE.
+                </p>
+
+                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                    <div class="corp-input-group">
+                        <label>Asunto (Obligatorio)</label>
+                        <div class="corp-field"><i data-lucide="edit-3"></i><input type="text" id="reopen-asunto" required></div>
+                    </div>
+                     <div class="corp-input-group">
+                        <label>Solicitante (Requiere ID)</label>
+                        <div class="corp-field">
+                            <i data-lucide="user"></i>
+                            <select id="reopen-solicitante-id" required style="width: 100%; background: transparent; border: none; color: inherit; padding: 10px; outline: none; font-family: inherit;">
+                                <!-- Populated by JS -->
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+                    <div class="corp-input-group">
+                        <label>Dirigido a</label>
+                        <div class="corp-field"><i data-lucide="user"></i><input type="text" id="reopen-dirigido-a" required></div>
+                    </div>
+                    <div class="corp-input-group">
+                        <label>Cargo Destinatario</label>
+                        <div class="corp-field"><i data-lucide="briefcase"></i><input type="text" id="reopen-cargo-dest" required></div>
+                    </div>
+                </div>
+
+                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+                    <div class="corp-input-group">
+                        <label>Organismo</label>
+                        <div class="corp-field"><i data-lucide="building"></i><input type="text" id="reopen-organismo" required></div>
+                    </div>
+                    <div class="corp-input-group">
+                        <label>Quien Firma</label>
+                        <div class="corp-field"><i data-lucide="pen-tool"></i><input type="text" id="reopen-quien-firma" required></div>
+                    </div>
+                </div>
+
+                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;">
+                    <div class="corp-input-group">
+                        <label>Área Resguardo</label>
+                        <div class="corp-field"><i data-lucide="archive"></i><input type="text" id="reopen-area-resguardo" required></div>
+                    </div>
+                    <div class="corp-input-group">
+                        <label>Medio Envío</label>
+                        <div class="corp-field">
+                            <i data-lucide="send"></i>
+                            <select id="reopen-medio-envio" required style="width: 100%; background: transparent; border: none; color: inherit; padding: 10px; outline: none; font-family: inherit;">
+                                <option value="PAM" style="color:#000;">PAM</option>
+                                <option value="FIRMA_AUTOGRAFA" style="color:#000;">Firma Autógrafa</option>
+                                <option value="PAM_Y_FIRMA" style="color:#000;">PAM y Firma Autógrafa</option>
+                                <option value="CORREO" style="color:#000;">Por Correo</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" id="btn-submit-reopen" class="btn-corporate" style="margin-top: 25px; width: 100%;">
+                    <i data-lucide="refresh-cw"></i> Reabrir con estos Datos
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===== MODAL: VIEW PDF ===== -->
+    <div id="modal-view-pdf" class="modal-overlay hidden">
+        <div class="modal-content glass-premium animate-fade-in" style="max-width: 900px; width: 90%; height: 90vh; display: flex; flex-direction: column;">
+            <div class="modal-header-row" style="margin-bottom: 15px;">
+                <h2><i data-lucide="file-text"></i> Visualizador PDF</h2>
+                <button class="btn-close-modal" onclick="window.closeModal(document.getElementById('modal-view-pdf'))"><i data-lucide="x"></i></button>
+            </div>
+            <div id="pdf-viewer-container" style="flex: 1;">
+                <!-- Iframe injected here -->
+            </div>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="js/api-client.js"></script>
     <script src="js/notifications.js"></script>
-    <script src="js/app-db.js"></script>
+    <script src="js/app-db.js?v=9"></script>
+    <script src="js/folios.js"></script>
+    <script src="js/notifications-center.js"></script>
 
     <!-- PWA: Service Worker + Bottom Nav Sync -->
     <script>
@@ -611,7 +916,7 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function () {
                 // Registro relativo para soportar subcarpetas (ej: /dgiit/)
-                navigator.serviceWorker.register('service-worker.js')
+                navigator.serviceWorker.register('service-worker.js?v=2')
                     .then(function(reg) { console.log('[PWA] SW registrado:', reg.scope); })
                     .catch(function (err) { console.warn('[PWA] SW no registrado:', err); });
             });
@@ -621,6 +926,7 @@
         function syncBottomNav() {
             var map = {
                 'nav-board':    'mobile-btn-board',
+                'nav-folios':   'mobile-btn-folios',
                 'nav-bitacora': 'mobile-btn-bitacora',
                 'nav-users':    'mobile-btn-users',
                 'nav-archive':  'mobile-btn-archive'
@@ -648,7 +954,18 @@
             syncBottomNav();
         }
 
-
+        // --- 4. REGISTRO DE SERVICE WORKER (PUSH & PWA) ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(reg => {
+                        console.log('🚀 Service Worker registrado con éxito:', reg.scope);
+                    })
+                    .catch(err => {
+                        console.error('❌ Fallo al registrar el Service Worker:', err);
+                    });
+            });
+        }
 
         /* 3. Banner de instalación PWA */
         var deferredPrompt = null;

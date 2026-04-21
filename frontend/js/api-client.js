@@ -134,6 +134,62 @@ const apiClient = {
     // --- NOTIFICACIONES PUSH ---
     async subscribePush(subscription) {
         return this.request('/notifications/subscribe', { method: 'POST', body: JSON.stringify({ subscription }) });
+    },
+
+    // --- PRE-FOLIOS ---
+    async getFolios(status = 'TODOS', limit = 20, offset = 0) { 
+        let url = `/folios?limit=${limit}&offset=${offset}`;
+        if (status && status !== 'TODOS') url += `&status=${status}`;
+        return this.request(url); 
+    },
+    async searchFolios(q, limit = 20, offset = 0) { 
+        return this.request(`/folios/search?q=${encodeURIComponent(q)}&limit=${limit}&offset=${offset}`); 
+    },
+    async createFolio(data) {
+        return this.request('/folios', { method: 'POST', body: JSON.stringify(data) });
+    },
+    async assignFolio(id, folio_number_manual = null) {
+        return this.request(`/folios/${id}/assign`, {
+            method: 'PUT',
+            body: JSON.stringify({ folio_number_manual })
+        });
+    },
+    async cancelFolio(id, cancel_reason) {
+        return this.request(`/folios/${id}/cancel`, {
+            method: 'PUT',
+            body: JSON.stringify({ cancel_reason })
+        });
+    },
+    async reopenFolio(id, data) {
+        return this.request(`/folios/${id}/reopen`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+    },
+    async uploadFolioPdf(id, file) {
+        const token = this.getToken();
+        const formData = new FormData();
+        formData.append('pdf', file);
+        const url = `${API_BASE_URL}/folios/${id}/upload-pdf`;
+        const response = await fetch(url, {
+            method: 'PUT',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+        return response.json();
+    },
+    getFolioPdfUrl(id) {
+        return `${API_BASE_URL}/folios/${id}/pdf?token=${this.getToken()}`;
+    },
+    // Notificaciones
+    async getNotifications() {
+        return this.request('/notifications');
+    },
+    async markNotificationsAsRead(id = null) {
+        return this.request('/notifications/mark-read', {
+            method: 'PUT',
+            body: JSON.stringify({ id })
+        });
     }
 };
 

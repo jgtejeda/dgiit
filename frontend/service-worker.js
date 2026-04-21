@@ -1,7 +1,7 @@
-/* DGIIT | SECTURI — Service Worker v1.0 */
+/* DGIIT | SECTURI — Service Worker v1.1 */
 
-const CACHE_NAME = 'dgiit-secturi-v1.0';
-const CDN_CACHE  = 'dgiit-secturi-cdn-v1.0';
+const CACHE_NAME = 'dgiit-secturi-v1.1';
+const CDN_CACHE  = 'dgiit-secturi-cdn-v1.1';
 
 const APP_SHELL = [
     '/',
@@ -34,14 +34,12 @@ self.addEventListener('install', event => {
     );
 });
 
-/* ── ACTIVATE: remove stale caches ───────────────────────── */
+/* ── ACTIVATE: remove ALL stale caches ───────────────────── */
 self.addEventListener('activate', event => {
     event.waitUntil(
         caches.keys()
             .then(keys => Promise.all(
-                keys
-                    .filter(k => k !== CACHE_NAME && k !== CDN_CACHE)
-                    .map(k => caches.delete(k))
+                keys.map(k => caches.delete(k))
             ))
             .then(() => self.clients.claim())
     );
@@ -70,18 +68,27 @@ self.addEventListener('fetch', event => {
         return;
     }
 
-    /* App shell — cache-first, fallback to network then index.html */
+    /* App shell & assets — cache-first or network fallback */
     event.respondWith(
         caches.match(request).then(cached => {
             if (cached) return cached;
+            
             return fetch(request)
                 .then(res => {
-                    if (!res.ok) return res;
-                    caches.open(CACHE_NAME).then(c => c.put(request, res.clone()));
+                    if (res && res.ok && request.method === 'GET') {
+                        const clone = res.clone();
+                        caches.open(CACHE_NAME).then(c => c.put(request, clone));
+                    }
                     return res;
                 })
-                .catch(() => {
-                    if (request.mode === 'navigate') return caches.match('/index.html');
+                .catch(err => {
+                    // Si es navegación, intentamos servir index.html
+                    if (request.mode === 'navigate') {
+                        return caches.match('/index.html');
+                    }
+                    // IMPORTANTE: No retornar undefined para evitar TypeError
+                    // Dejamos que el error de red se propague
+                    throw err;
                 });
         })
     );
@@ -118,12 +125,9 @@ self.addEventListener('push', event => {
 /* ── NOTIFICATION CLICK: open app ────────────────────────── */
 self.addEventListener('notificationclick', event => {
     event.notification.close();
-    
     const targetUrl = event.notification.data.url;
-
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
-            // Si hay una ventana abierta, enfocarla y navegar
             for (let i = 0; i < windowClients.length; i++) {
                 const client = windowClients[i];
                 if (client.url.includes(self.location.origin) && 'focus' in client) {
@@ -131,10 +135,7 @@ self.addEventListener('notificationclick', event => {
                     return client.focus();
                 }
             }
-            // Si no hay ventana abierta, abrir una nueva
-            if (clients.openWindow) {
-                return clients.openWindow(targetUrl);
-            }
+            if (clients.openWindow) return clients.openWindow(targetUrl);
         })
     );
 });

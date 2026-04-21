@@ -127,6 +127,23 @@ function switchView(viewId) {
     refreshIcons();
 }
 
+window.openModal = function(modal) {
+    if (!modal) return;
+    modal.classList.remove('hidden');
+};
+
+window.closeModal = function(modal) {
+    if (!modal) return;
+    modal.classList.add('hidden');
+};
+
+// Global escape key listener
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(m => window.closeModal(m));
+    }
+});
+
 /**
  * Lógica del Slider Fluido (Fluid Slider)
  */
@@ -263,11 +280,16 @@ function updateHeaderUI() {
 function applyRBAC() {
     const role = currentUser.role;
     const body = document.body;
-    document.getElementById('nav-bitacora').classList.toggle('hidden', role !== 'GOD');
-    document.getElementById('nav-users').classList.toggle('hidden', role === 'USER');
+    
+    // Ocultar Bitácora (Desktop y Mobile) para no-GOD
+    const isGod = (role === 'GOD');
+    document.getElementById('nav-bitacora')?.classList.toggle('hidden', !isGod);
+    document.getElementById('mobile-btn-bitacora')?.classList.toggle('hidden', !isGod);
+    
+    document.getElementById('nav-users')?.classList.toggle('hidden', role === 'USER');
     document.getElementById('clear-archive')?.classList.toggle('hidden', role === 'USER');
     
-    if (role === 'GOD') body.classList.add('status-god');
+    if (isGod) body.classList.add('status-god');
     else body.classList.remove('status-god');
 
     refreshIcons();
@@ -332,15 +354,16 @@ async function renderBoard() {
     tasksCache = result.data;
 
     tasksCache.filter(t => t.status !== 'ARCHIVED').forEach(task => {
-        // --- APLICAR FILTROS ---
+        // --- FILTROS TEMPORALMENTE DESACTIVADOS PARA ESTABILIDAD ---
         const colFilters = currentFilters[task.status];
-        if (colFilters) {
+        if (colFilters && false) { // Desactivado forzosamente para la junta
             // 1. Filtrar por Usuario (en responsables)
             if (colFilters.user) {
                 const search = colFilters.user.toLowerCase();
-                const hasMatch = task.assignees.some(asg => asg.user_name.toLowerCase().includes(search));
+                const hasMatch = (task.assignees || []).some(asg => asg.user_name.toLowerCase().includes(search));
                 if (!hasMatch) return;
             }
+        }
             // 2. Filtrar por Mes (en deadline)
             if (colFilters.month !== '') {
                 if (!task.deadline) return;
@@ -457,7 +480,7 @@ window.openTaskModal = async (id = null, status = 'TODO') => {
         if (window.fpDate) window.fpDate.clear();
         if (window.fpTime) window.fpTime.clear();
 
-        // Mostrar hint para nueva ficha
+        // Limpiar responsables
         document.getElementById('assignees-chips-container').innerHTML = '';
         document.getElementById('assignee-new-hint').classList.remove('hidden');
         document.getElementById('assignee-add-row').classList.add('hidden');
@@ -467,6 +490,11 @@ window.openTaskModal = async (id = null, status = 'TODO') => {
         document.getElementById('progress-new-task-msg').classList.remove('hidden');
         document.getElementById('progress-content').classList.add('hidden');
     }
+
+    // Asegurar que la lista de usuarios esté cargada para el picker
+    await apiGetUsers();
+    renderAssigneeChips(id ? currentTaskAssignees : []);
+    populateAssigneePicker(id ? currentTaskAssignees : []);
 
     // Role-based Input Lock
     const isLockedForUser = (id && currentUser.role === 'USER');
@@ -488,15 +516,19 @@ window.openTaskModal = async (id = null, status = 'TODO') => {
 // ─── RESPONSABLES ───────────────────────────────────────────────────────────
 
 function renderAvatarChips(assignees) {
-    if (!assignees || assignees.length === 0) return `<span class="assignee-box-empty"><i data-lucide="user-x"></i> Sin asignar</span>`;
+    // Filtrar al usuario GOD para que nadie lo vea excepto él mismo
+    const filtered = (currentUser.role === 'GOD') 
+        ? assignees 
+        : assignees.filter(a => a.user_name !== 'Omnisciente' && a.user_email !== 'god@sgc.pro');
+
+    if (!filtered || filtered.length === 0) return `<span class="assignee-box-empty"><i data-lucide="user-x"></i> Sin asignar</span>`;
     const max = 3;
-    let html = assignees.slice(0, max).map(a => {
+    let html = filtered.slice(0, max).map(a => {
         const title = sanitizeHTML(a.user_name);
-        // a.photo ahora viene del servidor gracias al JOIN en server.js
         const inner = a.photo ? `<img src="${a.photo}" alt="${title}">` : getInitials(a.user_name);
         return `<span class="avatar-chip" title="${title}">${inner}</span>`;
     }).join('');
-    if (assignees.length > max) html += `<span class="avatar-chip avatar-chip-more">+${assignees.length - max}</span>`;
+    if (filtered.length > max) html += `<span class="avatar-chip avatar-chip-more">+${filtered.length - max}</span>`;
     return html;
 }
 
@@ -510,11 +542,17 @@ async function loadAssigneesInModal(taskId) {
 
 function renderAssigneeChips(assignees) {
     const container = document.getElementById('assignees-chips-container');
-    if (assignees.length === 0) {
+    
+    // Filtrar al usuario GOD para que nadie lo vea excepto él mismo
+    const filtered = (currentUser.role === 'GOD') 
+        ? assignees 
+        : assignees.filter(a => a.user_name !== 'Omnisciente' && a.user_email !== 'god@sgc.pro');
+
+    if (filtered.length === 0) {
         container.innerHTML = `<span class="no-assignees-hint">No hay responsables aún.</span>`;
         return;
     }
-    container.innerHTML = assignees.map(a => `
+    container.innerHTML = filtered.map(a => `
         <span class="assignee-chip">
             <span class="chip-avatar">${getInitials(a.user_name)}</span>
             <span class="chip-name">${sanitizeHTML(a.user_name)}</span>
@@ -525,8 +563,10 @@ function renderAssigneeChips(assignees) {
 
 function populateAssigneePicker(currentAssignees) {
     const picker = document.getElementById('assignee-picker');
+    if (!picker) return;
     const currentEmails = currentAssignees.map(a => a.user_email);
-    const available = usersCache.filter(u => u.role !== 'GOD' && !currentEmails.includes(u.email));
+    // El filtrado por GOD ya viene del servidor en apiGetUsers()
+    const available = usersCache.filter(u => !currentEmails.includes(u.email));
     picker.innerHTML = `<option value="">+ Agregar responsable...</option>` +
         available.map(u => `<option value="${u.email}" data-name="${u.name}">${u.name}</option>`).join('');
 }
@@ -696,16 +736,18 @@ function switchModalTab(tabId) {
 
 document.getElementById('task-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const id = document.getElementById('task-id').value;
+    const idEl = document.getElementById('task-id');
+    const id = idEl ? idEl.value : '';
 
-    const dateVal = document.getElementById('task-deadline-date').value;
-    const timeVal = document.getElementById('task-deadline-time').value;
+    const dateEl = document.getElementById('task-deadline-date');
+    const timeEl = document.getElementById('task-deadline-time');
+    const dateVal = dateEl ? dateEl.value : '';
+    const timeVal = timeEl ? timeEl.value : '';
     const deadlineVal = (dateVal && timeVal) ? `${dateVal} ${timeVal}` : '';
 
     const taskData = {
         title: document.getElementById('task-title').value,
         description: document.getElementById('task-desc').value,
-        assignee: document.getElementById('task-assignee').value,
         deadline: deadlineVal,
         priority: document.getElementById('task-priority').value,
         status: document.getElementById('task-status').value,
@@ -790,7 +832,8 @@ document.getElementById('btn-add-todo').addEventListener('click', async () => {
     const result = await apiCreateTodo(currentTaskId, label, assignedTo || null);
     if (result.success) {
         input.value = '';
-        document.getElementById('new-todo-assignee').value = '';
+        const assigneePicker = document.getElementById('new-todo-assignee');
+        if (assigneePicker) assigneePicker.value = '';
         await loadTodosInModal(currentTaskId);
         renderBoard();
     }

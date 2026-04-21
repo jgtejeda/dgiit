@@ -11,8 +11,38 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
 const { sendEmail } = require('./utils/mailer');
 const { sendPush } = require('./utils/push');
+
+// ── Configuración de Multer: archivos PDF en disco ──────────────────────
+const UPLOADS_DIR = path.join(__dirname, 'uploads', 'folios');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+const folioStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const year = new Date().getFullYear().toString();
+        const dir = path.join(UPLOADS_DIR, year);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        cb(null, dir);
+    },
+    filename: (req, file, cb) => {
+        const ts = Date.now();
+        cb(null, `folio_${req.params.id}_${ts}.pdf`);
+    }
+});
+const folioUpload = multer({
+    storage: folioStorage,
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype !== 'application/pdf') {
+            return cb(new Error('Solo se permiten archivos PDF'));
+        }
+        cb(null, true);
+    }
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -26,7 +56,8 @@ const JWT_SECRET = process.env.JWT_SECRET || 'secret-key-fallback';
 // Middleware: Verificar Token JWT
 const verifyToken = (req, res, next) => {
     const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    // Permite token por query param ?token= (solo para el visor PDF)
+    const token = (authHeader && authHeader.split(' ')[1]) || req.query.token;
     if (!token) return res.status(401).json({ success: false, message: 'Acceso denegado: Token no proporcionado' });
 
     jwt.verify(token, JWT_SECRET, (err, decoded) => {
@@ -103,7 +134,7 @@ const pool = mysql.createPool(dbConfig);
 async function runMigrations(conn) {
     const migrations = [
         `ALTER TABLE tasks MODIFY COLUMN status ENUM('TODO','PROGRESS','DONE','ARCHIVED') DEFAULT 'TODO'`,
-        `ALTER TABLE tasks ADD COLUMN progress INT DEFAULT 0`,
+        `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS progress INT DEFAULT 0`,
         `CREATE TABLE IF NOT EXISTS task_todos (
             id INT AUTO_INCREMENT PRIMARY KEY,
             task_id INT NOT NULL,
@@ -145,7 +176,48 @@ async function runMigrations(conn) {
             subscription_json TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+        // ─── access_type para usuarios ───────────────────────────────────────
+        `ALTER TABLE users ADD COLUMN access_type ENUM('FOLIOS','FICHAS','AMBOS') DEFAULT 'AMBOS'`,
+        // ─── Tabla Pre-Folios ───────────────────────────────────────────────
+        `CREATE TABLE IF NOT EXISTS folios (
+            id              INT AUTO_INCREMENT PRIMARY KEY,
+            folio_number    VARCHAR(50) DEFAULT NULL,
+            status          ENUM('PENDIENTE','ASIGNADO','CERRADO','CANCELADO') DEFAULT 'PENDIENTE',
+            dirigido_a      VARCHAR(200) NOT NULL,
+            cargo_dest      VARCHAR(200) NOT NULL,
+            organismo       VARCHAR(200) NOT NULL,
+            asunto          TEXT NOT NULL,
+            quien_firma     VARCHAR(200) NOT NULL,
+            solicitante_id  INT NOT NULL,
+            solicitante_nombre VARCHAR(200) NOT NULL,
+            area_resguardo  VARCHAR(200) NOT NULL,
+            medio_envio     ENUM('PAM','FIRMA_AUTOGRAFA','PAM_Y_FIRMA','CORREO') NOT NULL,
+            assigned_by_id  INT DEFAULT NULL,
+            assigned_at     DATETIME DEFAULT NULL,
+            pdf_filename    VARCHAR(255) DEFAULT NULL,
+            pdf_path        VARCHAR(500) DEFAULT NULL,
+            pdf_text        LONGTEXT DEFAULT NULL,
+            pdf_uploaded_at DATETIME DEFAULT NULL,
+            cancel_reason   TEXT DEFAULT NULL,
+            cancelled_by_id INT DEFAULT NULL,
+            cancelled_at    DATETIME DEFAULT NULL,
+            created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            FOREIGN KEY (solicitante_id) REFERENCES users(id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+        // ─── Centro de Notificaciones ───────────────────────────────────────
+        `CREATE TABLE IF NOT EXISTS notifications (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            title VARCHAR(255) NOT NULL,
+            message TEXT NOT NULL,
+            type VARCHAR(50) DEFAULT 'SYSTEM',
+            link_id INT DEFAULT NULL,
+            is_read BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
     ];
     for (const sql of migrations) {
         try {
@@ -177,173 +249,63 @@ testConnection();
 // Helper: Notificaciones Contextuales Diferenciadas
 async function sendContextualEmails(eventType, taskData, authorEmail, commentData = null) {
     try {
-        // 1. Obtener datos del Autor (quien realiza la acción)
-        const [authorRows] = await pool.query('SELECT name, role FROM users WHERE email = ?', [authorEmail]);
+        const [authorRows] = await pool.query('SELECT name FROM users WHERE email = ?', [authorEmail]);
         const authorName = authorRows.length ? authorRows[0].name : (authorEmail || 'Alguien');
-        const authorRole = authorRows.length ? authorRows[0].role : 'USER';
+        const taskId = taskData.id;
 
-        // 2. Obtener correos de los Administradores
-        const [adminRows] = await pool.query('SELECT email FROM users WHERE role = "ADMIN"');
-        const adminEmails = adminRows.map(u => u.email);
+        // Obtener responsables y admins (usando correos normalizados)
+        const [asgRows] = await pool.query('SELECT LOWER(user_email) as email FROM task_assignees WHERE task_id = ?', [taskId]);
+        const assigneeEmails = asgRows.map(r => r.email);
+        
+        const [admRows] = await pool.query('SELECT LOWER(email) as email FROM users WHERE role = "ADMIN"');
+        const adminEmails = admRows.map(u => u.email);
 
-        // 3. Obtener el correo del Asignado a la tarea actual
-        let assigneeEmail = null;
-        let taskTitle = taskData.title || `Ficha #${taskData.id}`;
-        let assigneeName = taskData.assignee;
+        const [tRows] = await pool.query('SELECT title FROM tasks WHERE id = ?', [taskId]);
+        const taskTitle = tRows.length ? tRows[0].title : (taskData.title || `Ficha #${taskId}`);
 
-        if (eventType === 'COMMENT') {
-            const [taskRows] = await pool.query('SELECT title, assignee FROM tasks WHERE id = ?', [taskData.id]);
-            if (taskRows.length) {
-                taskTitle = taskRows[0].title;
-                assigneeName = taskRows[0].assignee;
-            }
+        // Destinatarios base
+        let recipients = [...new Set([...assigneeEmails, ...adminEmails])];
+
+        if (taskData.todo_assignee_email) {
+            recipients.push(taskData.todo_assignee_email.toLowerCase());
         }
 
-        if (assigneeName) {
-            const [asgRows] = await pool.query('SELECT email FROM users WHERE name = ?', [assigneeName]);
-            if (asgRows.length) assigneeEmail = asgRows[0].email;
-        }
+        recipients = [...new Set(recipients)].filter(e => e && e !== authorEmail.toLowerCase() && e !== 'god@sgc.pro');
 
-        // ==========================================
-        // LÓGICA DE DISTRIBUCIÓN Y MENSAJES
-        // ==========================================
-        // ==========================================
-
+        let msgPayload = { link_id: taskId, type: 'TASK' };
+        
         if (eventType === 'CREATE') {
-            // A) Al usuario creador: "Inf que hizo"
-            if (authorEmail && authorEmail !== 'god@sgc.pro') {
-                sendEmail({
-                    to: authorEmail,
-                    subject: 'Recibo: Has creado una nueva ficha',
-                    title: 'Ficha Creada',
-                    message: `Has creado exitosamente la ficha: <b>${taskTitle}</b> y la has asignado a ${assigneeName || 'Nadie'}.`,
-                    actionLink: 'http://localhost:8080'
+            msgPayload.title = '🚀 Nueva Ficha Creada';
+            msgPayload.body = `${authorName} creó: ${taskTitle}`;
+        } else if (eventType === 'UPDATE') {
+            msgPayload.title = '📝 Ficha Actualizada';
+            msgPayload.body = `${authorName} modificó: ${taskTitle} (${taskData.status || ''})`;
+        } else if (eventType === 'COMMENT') {
+            msgPayload.title = '💬 Nuevo Comentario';
+            msgPayload.body = `${authorName} comentó en "${taskTitle}": ${commentData.content.substring(0, 50)}...`;
+        } else if (eventType === 'TODO') {
+            msgPayload.title = '🚩 Etapa Asignada';
+            msgPayload.body = `${authorName} te asignó: "${taskData.todo_label}" en la ficha: ${taskTitle}`;
+        }
+
+        for (const email of recipients) {
+            // 1. Notificación en Plataforma (Campana y Push)
+            await broadcastPush(email, msgPayload);
+            
+            // 2. Notificación vía Correo Electrónico (Restaurado)
+            try {
+                await sendEmail({
+                    to: email,
+                    subject: msgPayload.title,
+                    title: msgPayload.title,
+                    message: msgPayload.body,
+                    actionLink: `https://intratur.guanajuato.gob.mx/dgiit/`
                 });
-            }
-            // B) Al Asignado (si es distinto al creador): "Te asignaron"
-            if (assigneeEmail && assigneeEmail !== authorEmail && assigneeEmail !== 'god@sgc.pro') {
-                sendEmail({
-                    to: assigneeEmail,
-                    subject: 'Se te ha asignado un nuevo proyecto',
-                    title: 'Nueva Asignación',
-                    message: `<b>${authorName}</b> te ha asignado la ficha: <b>${taskTitle}</b>.`,
-                    actionLink: 'http://localhost:8080'
-                });
-                broadcastPush(assigneeEmail, {
-                    title: '🚀 Nueva Asignación',
-                    body: `${authorName} te asignó la ficha: ${taskTitle}`,
-                    data: { taskId: taskData.id }
-                });
-            }
-            // C) A los ADMINS: "Fulano de tal hizo esto"
-            const adminsToNotify = adminEmails.filter(e => e !== authorEmail);
-            if (adminsToNotify.length > 0) {
-                sendEmail({
-                    to: adminsToNotify.join(', '),
-                    subject: 'Notificación de Auditoría: Ficha Creada',
-                    title: 'Auditoría: Nueva Ficha',
-                    message: `El usuario <b>${authorName}</b> ha creado la ficha: <b>${taskTitle}</b> y la asignó a ${assigneeName}.`,
-                    actionLink: 'http://localhost:8080'
-                });
-            }
-        } 
-        else if (eventType === 'UPDATE') {
-            // A) Al usuario que hizo la modificación
-            if (authorEmail && authorEmail !== 'god@sgc.pro') {
-                sendEmail({
-                    to: authorEmail,
-                    subject: 'Recibo: Has modificado una ficha',
-                    title: 'Cambios Guardados',
-                    message: `Has modificado la ficha: <b>${taskTitle}</b>. Nuevo estado: ${taskData.status}. Progreso: ${taskData.progress}%.`,
-                    actionLink: 'http://localhost:8080'
-                });
-            }
-            // B) Al Asignado (si no fue quien la modificó)
-            if (assigneeEmail && assigneeEmail !== authorEmail && assigneeEmail !== 'god@sgc.pro') {
-                sendEmail({
-                    to: assigneeEmail,
-                    subject: 'Cambios en tu proyecto asignado',
-                    title: 'Ficha Modificada',
-                    message: `<b>${authorName}</b> ha modificado tu ficha <b>${taskTitle}</b>. Nuevo estado: ${taskData.status}. Progreso: ${taskData.progress}%.`,
-                    actionLink: 'http://localhost:8080'
-                });
-                broadcastPush(assigneeEmail, {
-                    title: '📝 Ficha Actualizada',
-                    body: `${authorName} modificó tu ficha: ${taskTitle}`,
-                    data: { taskId: taskData.id }
-                });
-            }
-            // C) A los ADMINS
-            const adminsToNotify = adminEmails.filter(e => e !== authorEmail);
-            if (adminsToNotify.length > 0) {
-                sendEmail({
-                    to: adminsToNotify.join(', '),
-                    subject: `Auditoría: Cambios en ${taskTitle}`,
-                    title: 'Auditoría de Proyecto',
-                    message: `El usuario <b>${authorName}</b> ha modificado la ficha <b>${taskTitle}</b>. Estado: ${taskData.status}. Progreso: ${taskData.progress}%.`,
-                    actionLink: 'http://localhost:8080'
-                });
+            } catch (err) {
+                console.error(`❌ Fallo al enviar correo a ${email}:`, err.message);
             }
         }
-        else if (eventType === 'COMMENT') {
-            // A) Al usuario que comentó (Recibo)
-            if (authorEmail && authorEmail !== 'god@sgc.pro') {
-                sendEmail({
-                    to: authorEmail,
-                    subject: 'Recibo: Has publicado un comentario',
-                    title: 'Nota Guardada',
-                    message: `En la ficha <b>${taskTitle}</b>, escribiste: <br/>"<i>${commentData.content}</i>"`,
-                    actionLink: 'http://localhost:8080'
-                });
-            }
-            // B) Lógica cruzada para el Asignado y Admins
-            if (authorRole === 'ADMIN') {
-                // Si el autor es admin, el único que necesita ser notificado fuertemente es el Asignado (estándar)
-                if (assigneeEmail && assigneeEmail !== authorEmail && assigneeEmail !== 'god@sgc.pro') {
-                    sendEmail({
-                        to: assigneeEmail,
-                        subject: `El administrador ${authorName} te está avisando algo`,
-                        title: 'Aviso del Administrador',
-                        message: `En tu ficha <b>${taskTitle}</b>, el administrador <b>${authorName}</b> te comenta: <br/>"<i>${commentData.content}</i>"`,
-                        actionLink: 'http://localhost:8080'
-                    });
-                    broadcastPush(assigneeEmail, {
-                        title: '💬 Nota de Admin',
-                        body: `${authorName}: ${commentData.content}`,
-                        data: { taskId: taskData.id }
-                    });
-                }
-            } else {
-                // Si el autor es estándar, todos los admins se enteran, y el asignado (si no es el mismo autor) se entera
-                const adminsToNotify = adminEmails.filter(e => e !== authorEmail);
-                if (adminsToNotify.length > 0) {
-                    sendEmail({
-                        to: adminsToNotify.join(', '),
-                        subject: `Auditoría: Comentario en ${taskTitle}`,
-                        title: 'Auditoría de Comentarios',
-                        message: `El usuario <b>${authorName}</b> ha comentado en <b>${taskTitle}</b>: <br/>"<i>${commentData.content}</i>"`,
-                        actionLink: 'http://localhost:8080'
-                    });
-                }
-                if (assigneeEmail && assigneeEmail !== authorEmail && assigneeEmail !== 'god@sgc.pro') {
-                    sendEmail({
-                        to: assigneeEmail,
-                        subject: `Nuevo comentario en tu ficha`,
-                        title: 'Nota en Proyecto',
-                        message: `<b>${authorName}</b> ha comentado en <b>${taskTitle}</b>: <br/>"<i>${commentData.content}</i>"`,
-                        actionLink: 'http://localhost:8080'
-                    });
-                    broadcastPush(assigneeEmail, {
-                        title: '💬 Nuevo Comentario',
-                        body: `${authorName}: ${commentData.content}`,
-                        data: { taskId: taskData.id }
-                    });
-                }
-            }
-        }
-    } catch (e) {
-        console.error('Error en notificaciones contextuales:', e);
-    }
+    } catch (e) { console.error('❌ Error crítico en sendContextualEmails:', e); }
 }
 
 /**
@@ -351,20 +313,42 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
  */
 async function broadcastPush(userEmail, payload) {
     try {
-        const [uRows] = await pool.query('SELECT id FROM users WHERE email = ?', [userEmail]);
-        if (!uRows.length) return;
+        if (!userEmail) return;
+        const normalizedEmail = userEmail.toLowerCase().trim();
+
+        // Búsqueda robusta (case-insensitive)
+        const [uRows] = await pool.query('SELECT id FROM users WHERE LOWER(email) = ?', [normalizedEmail]);
+        
+        if (!uRows.length) {
+            console.warn(`[Broadcast] Usuario no encontrado: ${normalizedEmail}`);
+            return;
+        }
         const userId = uRows[0].id;
 
+        // 1. Persistir en la Bitácora (Campana Roja)
+        const linkId = payload.link_id || (payload.data ? (payload.data.taskId || payload.data.folioId) : null);
+        const nType = payload.type || payload.link_type || 'SYSTEM';
+
+        await pool.query(
+            'INSERT INTO notifications (user_id, title, message, type, link_id) VALUES (?, ?, ?, ?, ?)',
+            [userId, payload.title || 'DGIIT', payload.body || '', nType, linkId]
+        );
+
+        // 2. Notificar vía Push (si tiene suscripciones)
         const [subs] = await pool.query('SELECT id, subscription_json FROM push_subscriptions WHERE user_id = ?', [userId]);
         for (const s of subs) {
-            const subscription = JSON.parse(s.subscription_json);
-            const res = await sendPush(subscription, payload);
-            if (res.expired) {
-                await pool.query('DELETE FROM push_subscriptions WHERE id = ?', [s.id]);
+            try {
+                const subscription = JSON.parse(s.subscription_json);
+                const res = await sendPush(subscription, payload);
+                if (res && res.expired) {
+                    await pool.query('DELETE FROM push_subscriptions WHERE id = ?', [s.id]);
+                }
+            } catch (err) {
+                console.error(`[Push] Error en sub ${s.id}:`, err.message);
             }
         }
     } catch (e) {
-        console.error('Error en broadcastPush:', e);
+        console.error('❌ Error crítico en broadcastPush:', e);
     }
 }
 
@@ -433,9 +417,19 @@ app.post('/api/login', async (req, res) => {
 
 app.get('/api/users', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
     try {
-        const [rows] = await pool.query('SELECT id, email, name, role, position, department, photo FROM users ORDER BY id DESC');
+        let query = 'SELECT id, email, name, role, position, department, photo FROM users';
+        let params = [];
+        
+        // Si no es GOD, ocultar a los usuarios GOD
+        if (req.user.role !== 'GOD') {
+            query += " WHERE role != 'GOD'";
+        }
+        
+        query += ' ORDER BY id DESC';
+        const [rows] = await pool.query(query, params);
         res.json({ success: true, data: rows });
     } catch (error) {
+        console.error('Error GET /api/users:', error);
         res.status(500).json({ success: false, message: 'Error del servidor' });
     }
 });
@@ -593,13 +587,22 @@ app.post('/api/tasks', verifyToken, async (req, res) => {
             [title, description, status, assignee, formattedDate, priority, progress]
         );
         
-        // Notificar usando lógica cruzada
+        // Importante: Registrar al responsable principal en la nueva tabla multi-assignee
+        if (assignee) {
+            const [uRows] = await pool.query('SELECT email FROM users WHERE name = ?', [assignee]);
+            if (uRows.length) {
+                await pool.query('INSERT IGNORE INTO task_assignees (task_id, user_name, user_email) VALUES (?, ?, ?)', 
+                    [result.insertId, assignee, uRows[0].email]);
+            }
+        }
+        
+        // Notificación en segundo plano
         sendContextualEmails('CREATE', { id: result.insertId, title, assignee, status, progress }, author_email);
 
         res.json({ success: true, id: result.insertId });
     } catch (error) {
-        console.error('Error creando tarea:', error);
-        res.status(500).json({ success: false, message: 'Error del servidor' });
+        console.error('❌ Error creando tarea:', error);
+        res.status(500).json({ success: false, message: 'La ficha no se pudo guardar. Verifica la conexión.' });
     }
 });
 
@@ -619,6 +622,15 @@ app.put('/api/tasks/:id', verifyToken, async (req, res) => {
             [title, description, status, assignee, formattedDate, priority, finalProgress, id]
         );
 
+        // Sincronizar responsable principal en la tabla multi-assignee
+        if (assignee) {
+            const [uRows] = await pool.query('SELECT email FROM users WHERE name = ?', [assignee]);
+            if (uRows.length) {
+                await pool.query('INSERT IGNORE INTO task_assignees (task_id, user_name, user_email) VALUES (?, ?, ?)', 
+                    [id, assignee, uRows[0].email]);
+            }
+        }
+
         // Notificar usando lógica cruzada
         sendContextualEmails('UPDATE', { id, title, assignee, status, progress: finalProgress }, author_email);
 
@@ -630,7 +642,7 @@ app.put('/api/tasks/:id', verifyToken, async (req, res) => {
     }
 });
 
-app.delete('/api/tasks/:id', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
+app.delete('/api/tasks/:id', verifyToken, async (req, res) => {
     try {
         await pool.query('DELETE FROM tasks WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -660,6 +672,19 @@ app.post('/api/tasks/:id/todos', verifyToken, async (req, res) => {
             'INSERT INTO task_todos (task_id, label, assigned_to) VALUES (?, ?, ?)',
             [req.params.id, label, assigned_to || null]
         );
+
+        // Notificar en segundo plano
+        if (assigned_to) {
+            const [uRows] = await pool.query('SELECT email FROM users WHERE name = ?', [assigned_to]);
+            if (uRows.length) todoAssigneeEmail = uRows[0].email;
+        }
+
+        sendContextualEmails('TODO', { 
+            id: req.params.id, 
+            todo_label: label, 
+            todo_assignee_email: todoAssigneeEmail 
+        }, req.user.email);
+
         res.json({ success: true, id: result.insertId });
     } catch (e) { res.status(500).json({ success: false }); }
 });
@@ -685,23 +710,51 @@ app.put('/api/todos/:id', verifyToken, async (req, res) => {
 
 app.get('/api/tasks/:id/assignees', verifyToken, async (req, res) => {
     try {
-        const [rows] = await pool.query(
-            'SELECT * FROM task_assignees WHERE task_id = ? ORDER BY added_at ASC',
-            [req.params.id]
-        );
+        let query = 'SELECT * FROM task_assignees WHERE task_id = ?';
+        let params = [req.params.id];
+        
+        // Si el usuario no es GOD, no puede ver al responsable Omnisciente
+        if (req.user.role !== 'GOD') {
+            query += " AND user_name != 'Omnisciente'";
+        }
+        
+        query += ' ORDER BY added_at ASC';
+        const [rows] = await pool.query(query, params);
         res.json({ success: true, data: rows });
-    } catch (e) { res.status(500).json({ success: false }); }
+    } catch (e) { 
+        console.error('Error GET /api/tasks/:id/assignees:', e);
+        res.status(500).json({ success: false }); 
+    }
 });
 
 app.post('/api/tasks/:id/assignees', verifyToken, async (req, res) => {
     try {
         const { user_name, user_email } = req.body;
+
+        // Obtener título para el mensaje
+        const [tRows] = await pool.query('SELECT title FROM tasks WHERE id = ?', [req.params.id]);
+        const taskTitle = tRows.length ? tRows[0].title : 'una ficha';
+
         await pool.query(
             'INSERT IGNORE INTO task_assignees (task_id, user_name, user_email) VALUES (?, ?, ?)',
             [req.params.id, user_name, user_email || null]
         );
+
+        // Notificar al nuevo responsable
+        if (user_email) {
+            broadcastPush(user_email, {
+                title: 'Nueva Ficha Asignada 📋',
+                body: `Te han asignado a la ficha: "${taskTitle}"`,
+                link_id: req.params.id,
+                type: 'TASK'
+            });
+        }
+
         res.json({ success: true });
-    } catch (e) { res.status(500).json({ success: false }); }
+    } catch (e) { 
+        console.error('Error en asignación:', e);
+        res.status(500).json({ success: false }); 
+    }
 });
 
 app.delete('/api/tasks/:id/assignees/:email', verifyToken, async (req, res) => {
@@ -792,6 +845,426 @@ app.post('/api/notifications/subscribe', verifyToken, async (req, res) => {
     } catch (error) {
         console.error('Push Subscribe Error:', error);
         res.status(500).json({ success: false, message: 'Error interno al suscribir' });
+    }
+});
+
+// --- CENTRO DE NOTIFICACIONES: Listar y Marcar como leído ---
+app.get('/api/notifications', verifyToken, async (req, res) => {
+    try {
+        // --- INYECCIÓN DE PRUEBA (Solo la primera vez si no hay avisos de este tipo) ---
+        const [testCheck] = await pool.query('SELECT id FROM notifications WHERE user_id = ? AND title LIKE "%🔧%"', [req.user.id]);
+        if (testCheck.length === 0) {
+            await pool.query(
+                'INSERT INTO notifications (user_id, title, message, type) VALUES (?, "🔧 Sistema Reconectado", "Gib, la conexión de notificaciones ha sido restaurada. Ahora ya puedes recibir avisos de Eli y el equipo.", "SYSTEM")',
+                [req.user.id]
+            );
+        }
+
+        const [rows] = await pool.query(
+            'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50',
+            [req.user.id]
+        );
+        res.json({ success: true, notifications: rows });
+    } catch (error) {
+        console.error('Fetch Notifications Error:', error);
+        res.status(500).json({ success: false, message: 'Error interno' });
+    }
+});
+
+app.put('/api/notifications/mark-read', verifyToken, async (req, res) => {
+    const { id } = req.body; // Si viene ID marca una, si no viene marca TODAS del usuario
+    try {
+        if (id) {
+            await pool.query('UPDATE notifications SET is_read = TRUE WHERE id = ? AND user_id = ?', [id, req.user.id]);
+        } else {
+            await pool.query('UPDATE notifications SET is_read = TRUE WHERE user_id = ?', [req.user.id]);
+        }
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Mark Read Error:', error);
+        res.status(500).json({ success: false, message: 'Error interno' });
+    }
+});
+
+// ============================================
+// PRE-FOLIO
+// ============================================
+
+const ELIZABETH_EMAIL = 'emartinezes@guanajuato.gob.mx';
+const SITE_URL = 'https://intratur.guanajuato.site/dgiit';
+
+// Helper: siguiente número de folio
+async function nextFolioNumber(firstManual = null) {
+    if (firstManual !== null) return firstManual;
+    const [rows] = await pool.query(
+        `SELECT folio_number FROM folios WHERE folio_number IS NOT NULL ORDER BY id DESC LIMIT 1`
+    );
+    if (!rows.length) return null; // Primer folio siempre manual
+    const last = rows[0].folio_number; // SECTURI/DGIIT/XXX/2026
+    const parts = last.split('/');
+    const num = parseInt(parts[2] || '0', 10);
+    const year = new Date().getFullYear();
+    return `SECTURI/DGIIT/${String(num + 1).padStart(3, '0')}/${year}`;
+}
+
+// GET /api/folios — Listar folios
+app.get('/api/folios', verifyToken, async (req, res) => {
+    try {
+        const { status, limit = 20, offset = 0 } = req.query;
+        let query = `SELECT f.*, u.name AS assigned_by_name, u2.name AS cancelled_by_name
+                     FROM folios f
+                     LEFT JOIN users u ON u.id = f.assigned_by_id
+                     LEFT JOIN users u2 ON u2.id = f.cancelled_by_id`;
+        let params = [];
+        let where = [];
+
+        // Filtro de pertenencia (standard users solo ven lo suyo)
+        if (req.user.role !== 'GOD' && req.user.role !== 'ADMIN') {
+            where.push('f.solicitante_id = ?');
+            params.push(req.user.id);
+        }
+
+        // Filtro de estado
+        if (status && status !== 'TODOS') {
+            where.push('f.status = ?');
+            params.push(status);
+        }
+
+        if (where.length > 0) {
+            query += ' WHERE ' + where.join(' AND ');
+        }
+
+        query += ' ORDER BY f.id DESC LIMIT ? OFFSET ?';
+        params.push(parseInt(limit), parseInt(offset));
+
+        const [rows] = await pool.query(query, params);
+        res.json({ success: true, data: rows });
+    } catch (e) {
+        console.error('Error GET /api/folios:', e);
+        res.status(500).json({ success: false, message: 'Error del servidor' });
+    }
+});
+
+// GET /api/folios/search?q= — Búsqueda full-text
+app.get('/api/folios/search', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
+    try {
+        const { q, limit = 20, offset = 0 } = req.query;
+        const search = `%${q || ''}%`;
+        
+        const [rows] = await pool.query(
+            `SELECT f.*, u.name AS assigned_by_name FROM folios f
+             LEFT JOIN users u ON u.id = f.assigned_by_id
+             WHERE f.folio_number LIKE ? OR f.asunto LIKE ? OR f.organismo LIKE ?
+                OR f.dirigido_a LIKE ? OR f.solicitante_nombre LIKE ? OR f.pdf_text LIKE ?
+             ORDER BY f.id DESC LIMIT ? OFFSET ?`,
+            [search, search, search, search, search, search, parseInt(limit), parseInt(offset)]
+        );
+        res.json({ success: true, data: rows });
+    } catch (e) {
+        console.error('Error GET /api/folios/search:', e);
+        res.status(500).json({ success: false, message: 'Error del servidor' });
+    }
+});
+
+// POST /api/folios — Crear solicitud de pre-folio
+app.post('/api/folios', verifyToken, async (req, res) => {
+    try {
+        const {
+            dirigido_a, cargo_dest, organismo, asunto,
+            quien_firma, area_resguardo, medio_envio
+        } = req.body;
+
+        const solicitante_id = req.user.id;
+        const solicitante_nombre = req.user.email;
+
+        // Obtener nombre real del usuario
+        const [uRows] = await pool.query('SELECT name FROM users WHERE id = ?', [solicitante_id]);
+        const nombre = uRows.length ? uRows[0].name : solicitante_nombre;
+
+        const [result] = await pool.query(
+            `INSERT INTO folios (dirigido_a, cargo_dest, organismo, asunto, quien_firma,
+             solicitante_id, solicitante_nombre, area_resguardo, medio_envio)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [dirigido_a, cargo_dest, organismo, asunto, quien_firma,
+             solicitante_id, nombre, area_resguardo, medio_envio]
+        );
+
+        const medioLabel = { 'PAM': 'PAM', 'FIRMA_AUTOGRAFA': 'Firma Autógrafa', 'PAM_Y_FIRMA': 'PAM y Firma Autógrafa', 'CORREO': 'Por Correo' };
+
+        // Correo a Elizabeth
+        sendEmail({
+            to: ELIZABETH_EMAIL,
+            subject: `Nueva Solicitud de Pre-Folio — ${nombre}`,
+            title: '📋 Nueva Solicitud de Pre-Folio',
+            message: `
+                <p>El usuario <b>${nombre}</b> ha solicitado un número de folio.</p>
+                <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:14px;">
+                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Dirigido a:</td><td style="padding:8px;">${dirigido_a}</td></tr>
+                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Cargo:</td><td style="padding:8px;">${cargo_dest}</td></tr>
+                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Organismo / Dependencia:</td><td style="padding:8px;">${organismo}</td></tr>
+                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Asunto:</td><td style="padding:8px;">${asunto}</td></tr>
+                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Quien Firma:</td><td style="padding:8px;">${quien_firma}</td></tr>
+                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Área de Resguardo:</td><td style="padding:8px;">${area_resguardo}</td></tr>
+                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Medio de Envío:</td><td style="padding:8px;">${medioLabel[medio_envio] || medio_envio}</td></tr>
+                </table>
+                <p style="margin-top:16px;color:#6b7280;font-size:13px;">ID de solicitud: #${result.insertId} — Accede al sistema para asignar el folio.</p>
+            `,
+            actionLink: SITE_URL
+        });
+
+        // Recibo al solicitante
+        sendEmail({
+            to: req.user.email,
+            subject: 'Recibo: Tu solicitud de pre-folio fue enviada',
+            title: '✅ Solicitud Enviada',
+            message: `Tu solicitud de folio para el asunto <b>${asunto}</b> ha sido enviada correctamente. Elizabeth la revisará y te notificará cuando se te asigne el número de folio.`,
+            actionLink: SITE_URL
+        });
+
+        res.json({ success: true, id: result.insertId });
+    } catch (e) {
+        console.error('Error POST /api/folios:', e);
+        res.status(500).json({ success: false, message: 'Error del servidor' });
+    }
+});
+
+// PUT /api/folios/:id/assign — Elizabeth asigna número de folio
+app.put('/api/folios/:id/assign', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { folio_number_manual } = req.body;
+
+        const [existing] = await pool.query('SELECT * FROM folios WHERE id = ?', [id]);
+        if (!existing.length) return res.status(404).json({ success: false, message: 'Folio no encontrado' });
+        if (existing[0].status !== 'PENDIENTE') {
+            return res.status(400).json({ success: false, message: 'Solo se pueden asignar folios en estado PENDIENTE' });
+        }
+
+        let folioNum = folio_number_manual ? folio_number_manual.trim() : await nextFolioNumber();
+        if (!folioNum) return res.status(400).json({ success: false, message: 'Ingresa el número de folio manualmente (primer folio del sistema)' });
+
+        // Verificar que no exista duplicado
+        const [dup] = await pool.query('SELECT id FROM folios WHERE folio_number = ?', [folioNum]);
+        if (dup.length) return res.status(400).json({ success: false, message: `El folio ${folioNum} ya existe en el sistema` });
+
+        await pool.query(
+            `UPDATE folios SET folio_number = ?, status = 'ASIGNADO', assigned_by_id = ?, assigned_at = NOW() WHERE id = ?`,
+            [folioNum, req.user.id, id]
+        );
+
+        // Notificar al solicitante
+        const folio = existing[0];
+        const [uRows] = await pool.query('SELECT email FROM users WHERE id = ?', [folio.solicitante_id]);
+        if (uRows.length) {
+            sendEmail({
+                to: uRows[0].email,
+                subject: `Tu folio ha sido asignado: ${folioNum}`,
+                title: '🎉 Folio Asignado',
+                message: `Tu solicitud para el asunto <b>${folio.asunto}</b> ha recibido el número de folio oficial: <br/><h2 style="color:#1e3a8a;letter-spacing:1px;">${folioNum}</h2><p>Ahora debes cargar el PDF de evidencia de uso del folio en el sistema.</p>`,
+                actionLink: SITE_URL
+            });
+            // Notificación Push & Historial
+            broadcastPush(uRows[0].email, {
+                title: 'Folio Asignado 📑',
+                body: `Se ha asignado el folio ${folioNum} para: ${folio.asunto}`,
+                type: 'FOLIO',
+                data: { folioId: id }
+            });
+        }
+
+        res.json({ success: true, folio_number: folioNum });
+    } catch (e) {
+        console.error('Error PUT /api/folios/:id/assign:', e);
+        res.status(500).json({ success: false, message: 'Error del servidor' });
+    }
+});
+
+// PUT /api/folios/:id/cancel — Cancelar folio
+app.put('/api/folios/:id/cancel', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { cancel_reason = 'Cancelado por administrador' } = req.body;
+
+        const [existing] = await pool.query('SELECT * FROM folios WHERE id = ?', [id]);
+        if (!existing.length) return res.status(404).json({ success: false, message: 'Folio no encontrado' });
+        if (existing[0].status === 'CANCELADO') {
+            return res.status(400).json({ success: false, message: 'El folio ya está cancelado' });
+        }
+
+        await pool.query(
+            `UPDATE folios SET status = 'CANCELADO', cancel_reason = ?, cancelled_by_id = ?, cancelled_at = NOW() WHERE id = ?`,
+            [cancel_reason, req.user.id, id]
+        );
+
+        // Notificar al solicitante
+        const folio = existing[0];
+        const [uRows] = await pool.query('SELECT email FROM users WHERE id = ?', [folio.solicitante_id]);
+        if (uRows.length) {
+            sendEmail({
+                to: uRows[0].email,
+                subject: `Tu folio ha sido cancelado`,
+                title: '❌ Folio Cancelado',
+                message: `Tu solicitud de folio para el asunto <b>${folio.asunto}</b> ${folio.folio_number ? `(${folio.folio_number})` : ''} ha sido cancelada.<br/>Motivo: <i>${cancel_reason}</i>`,
+                actionLink: SITE_URL
+            });
+            // Notificación Push & Historial
+            broadcastPush(uRows[0].email, {
+                title: 'Folio Cancelado ❌',
+                body: `Su solicitud de folio ha sido cancelada.`,
+                type: 'FOLIO',
+                data: { folioId: id }
+            });
+        }
+
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Error PUT /api/folios/:id/cancel:', e);
+        res.status(500).json({ success: false, message: 'Error del servidor' });
+    }
+});
+
+// PUT /api/folios/:id/reopen — Reabrir folio cancelado (limpia y vuelve a PENDIENTE)
+app.put('/api/folios/:id/reopen', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const body = req.body; // Puede incluir campos actualizados del formulario
+
+        const [existing] = await pool.query('SELECT * FROM folios WHERE id = ?', [id]);
+        if (!existing.length) return res.status(404).json({ success: false, message: 'Folio no encontrado' });
+        if (existing[0].status !== 'CANCELADO') {
+            return res.status(400).json({ success: false, message: 'Solo se pueden reabrir folios cancelados' });
+        }
+
+        const fields = {
+            dirigido_a:    body.dirigido_a    || existing[0].dirigido_a,
+            cargo_dest:    body.cargo_dest    || existing[0].cargo_dest,
+            organismo:     body.organismo     || existing[0].organismo,
+            asunto:        body.asunto        || existing[0].asunto,
+            quien_firma:   body.quien_firma   || existing[0].quien_firma,
+            area_resguardo:body.area_resguardo|| existing[0].area_resguardo,
+            medio_envio:   body.medio_envio   || existing[0].medio_envio,
+            solicitante_id:body.solicitante_id|| existing[0].solicitante_id
+        };
+
+        // Si cambió el solicitante, buscar su nombre
+        let nombre = existing[0].solicitante_nombre;
+        if (body.solicitante_id && body.solicitante_id != existing[0].solicitante_id) {
+            const [uRows] = await pool.query('SELECT name FROM users WHERE id = ?', [body.solicitante_id]);
+            if (uRows.length) nombre = uRows[0].name;
+        }
+
+        await pool.query(
+            `UPDATE folios SET status = 'PENDIENTE', folio_number = NULL,
+             assigned_by_id = NULL, assigned_at = NULL,
+             cancel_reason = NULL, cancelled_by_id = NULL, cancelled_at = NULL,
+             pdf_filename = NULL, pdf_path = NULL, pdf_text = NULL, pdf_uploaded_at = NULL,
+             dirigido_a = ?, cargo_dest = ?, organismo = ?, asunto = ?,
+             quien_firma = ?, area_resguardo = ?, medio_envio = ?,
+             solicitante_id = ?, solicitante_nombre = ?
+             WHERE id = ?`,
+            [fields.dirigido_a, fields.cargo_dest, fields.organismo, fields.asunto,
+             fields.quien_firma, fields.area_resguardo, fields.medio_envio, 
+             fields.solicitante_id, nombre, id]
+        );
+
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Error PUT /api/folios/:id/reopen:', e);
+        res.status(500).json({ success: false, message: 'Error del servidor' });
+    }
+});
+
+// PUT /api/folios/:id/upload-pdf — Subir PDF de cierre/evidencia
+app.put('/api/folios/:id/upload-pdf', verifyToken, (req, res, next) => {
+    folioUpload.single('pdf')(req, res, (err) => {
+        if (err) {
+            return res.status(400).json({ success: false, message: err.message || 'Error al subir PDF' });
+        }
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!req.file) return res.status(400).json({ success: false, message: 'No se recibió ningún archivo PDF' });
+
+        const [existing] = await pool.query('SELECT * FROM folios WHERE id = ?', [id]);
+        if (!existing.length) return res.status(404).json({ success: false, message: 'Folio no encontrado' });
+
+        // Verificar permisos: solo el solicitante o admin/god pueden subir
+        if (req.user.role === 'USER' && existing[0].solicitante_id !== req.user.id) {
+            fs.unlinkSync(req.file.path); // Borrar el archivo subido
+            return res.status(403).json({ success: false, message: 'No tienes permiso para subir evidencia a este folio' });
+        }
+        if (existing[0].status !== 'ASIGNADO') {
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({ success: false, message: 'Solo puedes subir evidencia a folios en estado ASIGNADO' });
+        }
+
+        // Borrar PDF anterior si existe
+        if (existing[0].pdf_path && fs.existsSync(existing[0].pdf_path)) {
+            try { fs.unlinkSync(existing[0].pdf_path); } catch(e) {}
+        }
+
+        // Extraer texto del PDF para búsqueda
+        let pdfText = '';
+        try {
+            const pdfParse = require('pdf-parse');
+            const pdfBuffer = fs.readFileSync(req.file.path);
+            const data = await pdfParse(pdfBuffer);
+            pdfText = data.text ? data.text.substring(0, 50000) : '';
+        } catch (e) {
+            console.warn('⚠️ No se pudo extraer texto del PDF (sin capa OCR):', e.message);
+        }
+
+        await pool.query(
+            `UPDATE folios SET status = 'CERRADO', pdf_filename = ?, pdf_path = ?,
+             pdf_text = ?, pdf_uploaded_at = NOW() WHERE id = ?`,
+            [req.file.filename, req.file.path, pdfText, id]
+        );
+
+        // Notificar a Elizabeth
+        const folio = existing[0];
+        sendEmail({
+            to: ELIZABETH_EMAIL,
+            subject: `PDF de evidencia cargado — ${folio.folio_number || 'Pre-Folio #' + id}`,
+            title: '📄 Evidencia PDF Recibida',
+            message: `El usuario <b>${folio.solicitante_nombre}</b> ha subido el PDF de evidencia para el folio <b>${folio.folio_number || '#' + id}</b>.<br/>Asunto: ${folio.asunto}`,
+            actionLink: SITE_URL
+        });
+
+        res.json({ success: true, filename: req.file.filename });
+    } catch (e) {
+        console.error('Error PUT /api/folios/:id/upload-pdf:', e);
+        res.status(500).json({ success: false, message: 'Error del servidor' });
+    }
+});
+
+// GET /api/folios/:id/pdf — Servir el PDF (visualizador)
+app.get('/api/folios/:id/pdf', verifyToken, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const [rows] = await pool.query('SELECT * FROM folios WHERE id = ?', [id]);
+        if (!rows.length || !rows[0].pdf_path) {
+            return res.status(404).json({ success: false, message: 'PDF no encontrado' });
+        }
+
+        const folio = rows[0];
+        // Verificar permisos: USER solo ve su propio folio
+        if (req.user.role === 'USER' && folio.solicitante_id !== req.user.id) {
+            return res.status(403).json({ success: false, message: 'Sin permiso' });
+        }
+
+        const filePath = folio.pdf_path;
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).json({ success: false, message: 'Archivo no encontrado en disco' });
+        }
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${folio.pdf_filename}"`);
+        fs.createReadStream(filePath).pipe(res);
+    } catch (e) {
+        console.error('Error GET /api/folios/:id/pdf:', e);
+        res.status(500).json({ success: false, message: 'Error del servidor' });
     }
 });
 
