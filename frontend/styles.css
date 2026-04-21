@@ -460,6 +460,10 @@ body.data-theme:has(#login-screen:not(.hidden)) {
     font-size: 0.85rem;
 }
 
+.notif-item:hover {
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
 .btn-logout-header {
     background: rgba(255, 50, 50, 0.1);
     border: 1px solid rgba(255, 50, 50, 0.2);
@@ -481,6 +485,11 @@ body.data-theme:has(#login-screen:not(.hidden)) {
 .view-section {
     height: 100%;
     width: 100%;
+}
+
+/* Folios view necesita display:flex en vez de block */
+#folios-view:not(.hidden) {
+    display: flex;
 }
 
 .board-container {

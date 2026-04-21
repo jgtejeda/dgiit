@@ -71,9 +71,15 @@ async function apiDeleteTask(id) { return await apiClient.deleteTask(id); }
 
 // --- 3. TODOS API ---
 async function apiGetTodos(taskId) { return await apiClient.getTodos(taskId); }
-async function apiCreateTodo(taskId, label, assignedTo = null) { return await apiClient.createTodo(taskId, label, assignedTo); }
-async function apiToggleTodo(todoId, isDone, assignedTo = undefined) { return await apiClient.toggleTodo(todoId, isDone, assignedTo); }
-async function apiDeleteTodo(todoId) { return await apiClient.deleteTodo(todoId); }
+async function apiCreateTodo(taskId, label, assignedTo = null) { 
+    return await apiClient.createTodo(taskId, label, assignedTo, currentUser?.email); 
+}
+async function apiToggleTodo(todoId, isDone, assignedTo = undefined) { 
+    return await apiClient.toggleTodo(todoId, isDone, assignedTo, currentUser?.email); 
+}
+async function apiDeleteTodo(todoId) { 
+    return await apiClient.deleteTodo(todoId, currentUser?.email); 
+}
 
 // --- 4. COMMENTS API ---
 async function apiGetComments(taskId) { return await apiClient.getComments(taskId); }
@@ -124,6 +130,10 @@ function switchView(viewId) {
     if (viewId === 'user-mgmt-view') renderUsersList();
     if (viewId === 'board-view') renderBoard();
     if (viewId === 'archive-view') renderArchive();
+    if (viewId === 'folios-view') {
+        if (typeof initFolioForm === 'function') initFolioForm();
+        if (typeof loadFolios === 'function') loadFolios();
+    }
     refreshIcons();
 }
 
@@ -208,21 +218,15 @@ async function initAuth() {
         const pass = document.getElementById('login-pass').value;
         const result = await apiLogin(email, pass);
         if (result.success) {
-            currentUser = result.user;
-            await apiSaveLog('Inicio de sesión exitoso');
-            applyRBAC();
-            loginScreen.classList.add('hidden');
-            mainApp.classList.remove('hidden');
-            // document.getElementById('data-scene')?.classList.add('hidden-app'); /* Removido para mantener el fondo en el dashboard */
-            switchView('board-view');
             delete result.user.password;
             localStorage.setItem('sgc_user', JSON.stringify(result.user));
             currentUser = result.user;
             await apiSaveLog('Inicio de sesión exitoso');
             updateHeaderUI();
             applyRBAC();
+            loginScreen.classList.add('hidden');
+            mainApp.classList.remove('hidden');
             switchView('board-view');
-            renderBoard();
         } else {
             errorMsg.classList.remove('hidden');
             errorMsg.innerText = result.message || 'Credenciales inválidas';
@@ -437,6 +441,12 @@ async function renderBoard() {
 window.openTaskModal = async (id = null, status = 'TODO') => {
     currentTaskId = id;
     currentTaskAssignees = [];
+    
+    // Asegurar que el caché de usuarios esté cargado para el selector
+    if (usersCache.length === 0) {
+        await apiGetUsers();
+    }
+
     const modal = document.getElementById('task-modal');
     
     switchModalTab('tab-info');
@@ -755,38 +765,52 @@ document.getElementById('task-form').addEventListener('submit', async (e) => {
         author_email: currentUser?.email
     };
 
-    if (id) {
-        const result = await apiUpdateTask(id, taskData);
-        if (result.success) {
-            currentTaskId = parseInt(id);
-            // Enable todos/comments tabs after save
-            document.getElementById('todos-new-task-msg').classList.add('hidden');
-            document.getElementById('todos-content').classList.remove('hidden');
-            document.getElementById('progress-new-task-msg').classList.add('hidden');
-            document.getElementById('progress-content').classList.remove('hidden');
-            // Reload progress tab with updated task data
-            const updatedTask = { ...taskData, progress: result.progress ?? taskData.progress };
-            loadProgressTab(currentTaskId, updatedTask);
+    try {
+        if (id) {
+            const result = await apiUpdateTask(id, taskData);
+            if (result.success) {
+                currentTaskId = parseInt(id);
+                document.getElementById('todos-new-task-msg').classList.add('hidden');
+                document.getElementById('todos-content').classList.remove('hidden');
+                document.getElementById('progress-new-task-msg').classList.add('hidden');
+                document.getElementById('progress-content').classList.remove('hidden');
+                const updatedTask = { ...taskData, progress: result.progress ?? taskData.progress };
+                loadProgressTab(currentTaskId, updatedTask);
+                await apiSaveLog(`Actualizó ficha: "${taskData.title}"`);
+                renderBoard();
+                closeTaskModal();
+            } else {
+                alert('Error al actualizar: ' + (result.message || 'Error desconocido'));
+            }
+        } else {
+            const result = await apiCreateTask(taskData);
+            if (result.success) {
+                currentTaskId = result.id;
+                document.getElementById('task-id').value = result.id;
+                document.getElementById('modal-task-title').innerText = 'Editar Ficha';
+                document.getElementById('todos-new-task-msg').classList.add('hidden');
+                document.getElementById('todos-content').classList.remove('hidden');
+                document.getElementById('progress-new-task-msg').classList.add('hidden');
+                document.getElementById('progress-content').classList.remove('hidden');
+                
+                document.getElementById('assignee-new-hint').classList.add('hidden');
+                document.getElementById('assignee-add-row').classList.remove('hidden');
+                await loadAssigneesInModal(result.id);
+                
+                loadTodosInModal(result.id);
+                loadProgressTab(result.id, { progress: 0, status: taskData.status });
+                await apiSaveLog(`Creó ficha: "${taskData.title}"`);
+                renderBoard();
+                // NO CERRAR EL MODAL AQUÍ para permitir agregar responsables de inmediato
+                alert('Ficha creada con éxito. Ahora puedes agregar responsables en esta misma ventana.');
+            } else {
+                alert('Error al crear: ' + (result.message || 'Error desconocido'));
+            }
         }
-        await apiSaveLog(`Actualizó ficha: "${taskData.title}"`);
-    } else {
-        const result = await apiCreateTask(taskData);
-        if (result.success) {
-            currentTaskId = result.id;
-            document.getElementById('task-id').value = result.id;
-            document.getElementById('modal-task-title').innerText = 'Editar Ficha';
-            document.getElementById('todos-new-task-msg').classList.add('hidden');
-            document.getElementById('todos-content').classList.remove('hidden');
-            document.getElementById('progress-new-task-msg').classList.add('hidden');
-            document.getElementById('progress-content').classList.remove('hidden');
-            loadTodosInModal(result.id);
-            loadProgressTab(result.id, { progress: 0, status: taskData.status });
-        }
-        await apiSaveLog(`Creó ficha: "${taskData.title}" para ${taskData.assignee}`);
+    } catch (err) {
+        console.error('Error en el formulario de tareas:', err);
+        alert('Error crítico: ' + err.message);
     }
-
-    renderBoard();
-    closeTaskModal();
 });
 
 // Save progress button

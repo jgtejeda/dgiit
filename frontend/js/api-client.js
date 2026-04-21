@@ -89,19 +89,21 @@ const apiClient = {
 
     // --- ETAPAS (TODOS) ---
     async getTodos(taskId) { return this.request(`/tasks/${taskId}/todos`); },
-    async createTodo(taskId, label, assignedTo = null) {
+    async createTodo(taskId, label, assignedTo = null, authorEmail = null) {
         return this.request(`/tasks/${taskId}/todos`, {
             method: 'POST',
-            body: JSON.stringify({ label, assigned_to: assignedTo })
+            body: JSON.stringify({ label, assigned_to: assignedTo, author_email: authorEmail })
         });
     },
-    async toggleTodo(todoId, isDone, assignedTo = undefined) {
-        const body = { is_done: isDone };
+    async toggleTodo(todoId, isDone, assignedTo = undefined, authorEmail = null) {
+        const body = { is_done: isDone, author_email: authorEmail };
         if (assignedTo !== undefined) body.assigned_to = assignedTo;
         return this.request(`/todos/${todoId}`, { method: 'PUT', body: JSON.stringify(body) });
     },
-    async deleteTodo(todoId) {
-        return this.request(`/todos/${todoId}`, { method: 'DELETE' });
+    async deleteTodo(todoId, authorEmail = null) {
+        let url = `/todos/${todoId}`;
+        if (authorEmail) url += `?author_email=${encodeURIComponent(authorEmail)}`;
+        return this.request(url, { method: 'DELETE' });
     },
 
     // --- RESPONSABLES (MULTI-ASSIGNEE) ---

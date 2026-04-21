@@ -16,6 +16,8 @@ const fs = require('fs');
 const multer = require('multer');
 const { sendEmail } = require('./utils/mailer');
 const { sendPush } = require('./utils/push');
+const multer = require('multer');
+const pdfParse = require('pdf-parse');
 
 // ── Configuración de Multer: archivos PDF en disco ──────────────────────
 const UPLOADS_DIR = path.join(__dirname, 'uploads', 'folios');
@@ -92,7 +94,18 @@ app.use(cors({
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
 }));
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '25mb' }));
+app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+
+// Multer: almacenar PDFs en memoria para OCR
+const uploadPDF = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/pdf') cb(null, true);
+        else cb(new Error('Solo se aceptan archivos PDF'));
+    }
+});
 
 // Limitación de peticiones para seguridad
 const limiter = rateLimit({
@@ -309,6 +322,21 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
 }
 
 /**
+ * Guarda una notificación in-app en la base de datos
+ */
+async function saveAppNotification(userEmail, title, message, taskId) {
+    if (!userEmail) return;
+    try {
+        await pool.query(
+            'INSERT INTO app_notifications (user_email, title, message, task_id) VALUES (?, ?, ?, ?)',
+            [userEmail, title, message, taskId || null]
+        );
+    } catch (e) {
+        console.error('Error guardando notificación in-app:', e);
+    }
+}
+
+/**
  * Envía notificaciones Push a todos los dispositivos de un usuario
  */
 async function broadcastPush(userEmail, payload) {
@@ -358,7 +386,10 @@ async function broadcastPush(userEmail, payload) {
 
 app.post('/api/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
+        let { email, password } = req.body;
+        if (email) email = email.trim();
+        if (password) password = password.trim();
+
         const [rows] = await pool.query(
             'SELECT id, email, name, role, position, department, password, photo FROM users WHERE email = ?',
             [email]
@@ -374,10 +405,13 @@ app.post('/api/login', async (req, res) => {
                 isMatch = await bcrypt.compare(password, dbPassword);
             } catch (e) {
                 isMatch = false;
+                require('fs').appendFileSync('login_debug.log', `Bcrypt error for ${email}: ${e.message}\n`);
             }
 
             // 2. Fallback: Comparar texto plano (migración)
             const isPlainTextMatch = (password === dbPassword);
+            
+            require('fs').appendFileSync('login_debug.log', `Login attempt for ${email}: isMatch=${isMatch}, isPlainTextMatch=${isPlainTextMatch}\n`);
 
             if (isMatch || isPlainTextMatch) {
                 // Si hizo match con texto plano, actualizar a hash automáticamente
@@ -455,7 +489,9 @@ app.post('/api/users', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res
 app.put('/api/users/:id', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
-        const { email, name, role, position, department, password, photo } = req.body;
+        let { email, name, role, position, department, password, photo } = req.body;
+        
+        if (password) password = password.trim();
         
         // Solo ADMIN/GOD pueden editar a otros. Los usuarios normales solo pueden editarse a sí mismos (vía /api/profile).
         if (req.user.role === 'USER' && req.user.id != id) {
@@ -486,8 +522,10 @@ app.put('/api/users/:id', verifyToken, async (req, res) => {
 app.put('/api/profile', verifyToken, async (req, res) => {
     console.log('📬 Petición recibida en /api/profile');
     try {
-        const { name, position, department, password, photo } = req.body;
         const userEmail = req.user.email;
+        let { name, position, department, password, photo } = req.body;
+
+        if (password) password = password.trim();
 
         if (photo) {
             console.log(`📸 Recibiendo foto para ${userEmail}. Tamaño: ${photo.length} bytes`);
@@ -579,7 +617,14 @@ app.get('/api/tasks', verifyToken, async (req, res) => {
 
 app.post('/api/tasks', verifyToken, async (req, res) => {
     try {
-        const { title, description, status = 'TODO', assignee, deadline, priority = 'MEDIA', author_email } = req.body;
+        const { 
+            title = '', 
+            description = '', 
+            status = 'TODO', 
+            assignee = '', 
+            deadline = null, 
+            priority = 'MEDIA'
+        } = req.body;
         const formattedDate = formatMySQLDate(deadline);
         const progress = 0;
         const [result] = await pool.query(
@@ -611,7 +656,7 @@ app.put('/api/tasks/:id', verifyToken, async (req, res) => {
         const { id } = req.params;
         const {
             title = '', description = '', status = 'TODO',
-            assignee = '', deadline = null, priority = 'MEDIA', progress = 0, author_email
+            assignee = '', deadline = null, priority = 'MEDIA', progress = 0
         } = req.body;
 
         const formattedDate = formatMySQLDate(deadline);
@@ -632,7 +677,7 @@ app.put('/api/tasks/:id', verifyToken, async (req, res) => {
         }
 
         // Notificar usando lógica cruzada
-        sendContextualEmails('UPDATE', { id, title, assignee, status, progress: finalProgress }, author_email);
+        await sendContextualEmails('UPDATE', { id, title, assignee, status, progress: finalProgress }, req.user.email);
 
         console.log(`✅ Tarea ${id} actualizada → status: ${status}, progress: ${finalProgress}%`);
         res.json({ success: true, progress: finalProgress });
@@ -691,7 +736,13 @@ app.post('/api/tasks/:id/todos', verifyToken, async (req, res) => {
 
 app.put('/api/todos/:id', verifyToken, async (req, res) => {
     try {
+        require('fs').appendFileSync('notify_debug2.log', `PUT /api/todos/${req.params.id}\n`);
         const { is_done, assigned_to } = req.body;
+        
+        // Obtener info antes de actualizar para la notificación
+        const [todoRows] = await pool.query('SELECT t.title, td.label, td.task_id FROM task_todos td JOIN tasks t ON t.id = td.task_id WHERE td.id = ?', [req.params.id]);
+        require('fs').appendFileSync('notify_debug2.log', `todoRows length: ${todoRows.length}, is_done: ${is_done}\n`);
+
         if (assigned_to !== undefined) {
             await pool.query(
                 'UPDATE task_todos SET is_done = ?, assigned_to = ? WHERE id = ?',
@@ -700,8 +751,22 @@ app.put('/api/todos/:id', verifyToken, async (req, res) => {
         } else {
             await pool.query('UPDATE task_todos SET is_done = ? WHERE id = ?', [is_done ? 1 : 0, req.params.id]);
         }
+
+        if (todoRows.length && is_done) {
+            require('fs').appendFileSync('notify_debug2.log', `Calling sendContextualEmails TODO_COMPLETE\n`);
+            await sendContextualEmails('TODO_COMPLETE', {
+                id: todoRows[0].task_id,
+                title: todoRows[0].title,
+                label: todoRows[0].label
+            }, req.user.email);
+            require('fs').appendFileSync('notify_debug2.log', `Finished sendContextualEmails TODO_COMPLETE\n`);
+        }
+
         res.json({ success: true });
-    } catch (e) { res.status(500).json({ success: false }); }
+    } catch (e) { 
+        require('fs').appendFileSync('notify_debug2.log', `Error: ${e.message}\n`);
+        res.status(500).json({ success: false }); 
+    }
 });
 
 // ============================================
@@ -769,9 +834,27 @@ app.delete('/api/tasks/:id/assignees/:email', verifyToken, async (req, res) => {
 
 app.delete('/api/todos/:id', verifyToken, async (req, res) => {
     try {
+        require('fs').appendFileSync('notify_debug2.log', `DELETE /api/todos/${req.params.id}\n`);
+        const [todoRows] = await pool.query('SELECT t.title, td.label, td.task_id FROM task_todos td JOIN tasks t ON t.id = td.task_id WHERE td.id = ?', [req.params.id]);
+        require('fs').appendFileSync('notify_debug2.log', `todoRows length: ${todoRows.length}\n`);
+
         await pool.query('DELETE FROM task_todos WHERE id = ?', [req.params.id]);
+
+        if (todoRows.length) {
+            require('fs').appendFileSync('notify_debug2.log', `Calling sendContextualEmails TODO_DELETE\n`);
+            await sendContextualEmails('TODO_DELETE', {
+                id: todoRows[0].task_id,
+                title: todoRows[0].title,
+                label: todoRows[0].label
+            }, req.user.email);
+            require('fs').appendFileSync('notify_debug2.log', `Finished sendContextualEmails TODO_DELETE\n`);
+        }
+
         res.json({ success: true });
-    } catch (e) { res.status(500).json({ success: false }); }
+    } catch (e) { 
+        require('fs').appendFileSync('notify_debug2.log', `Error in DELETE: ${e.message}\n`);
+        res.status(500).json({ success: false }); 
+    }
 });
 
 // ============================================
@@ -797,7 +880,7 @@ app.post('/api/tasks/:id/comments', verifyToken, async (req, res) => {
         );
         
         // Notificar usando lógica cruzada
-        sendContextualEmails('COMMENT', { id: req.params.id }, author_email, { content });
+        await sendContextualEmails('COMMENT', { id: req.params.id }, req.user.email, { content });
 
         res.json({ success: true, id: result.insertId });
     } catch (e) { res.status(500).json({ success: false }); }
