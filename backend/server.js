@@ -80,6 +80,14 @@ const checkRole = (roles) => (req, res, next) => {
     next();
 };
 
+// Middleware: Verificar Access Type (FOLIOS, FICHAS, AMBOS)
+const checkAccessType = (type) => (req, res, next) => {
+    // GOD y ADMIN siempre pasan
+    if (req.user.role === 'GOD' || req.user.role === 'ADMIN') return next();
+    if (req.user.access_type === 'AMBOS' || req.user.access_type === type) return next();
+    return res.status(403).json({ success: false, message: 'Sin acceso a este módulo' });
+};
+
 app.set('trust proxy', 1);
 
 app.use(helmet({
@@ -412,7 +420,7 @@ app.post('/api/login', async (req, res) => {
         if (password) password = password.trim();
 
         const [rows] = await pool.query(
-            'SELECT id, email, name, role, position, department, password, photo FROM users WHERE email = ?',
+            'SELECT id, email, name, role, position, department, password, photo, access_type FROM users WHERE email = ?',
             [email]
         );
 
@@ -446,7 +454,7 @@ app.post('/api/login', async (req, res) => {
 
                 // Generar Token JWT (6 horas)
                 const token = jwt.sign(
-                    { id: user.id, email: user.email, role: user.role },
+                    { id: user.id, email: user.email, role: user.role, access_type: user.access_type },
                     JWT_SECRET,
                     { expiresIn: '6h' }
                 );
@@ -583,7 +591,7 @@ app.delete('/api/users/:id', verifyToken, checkRole(['GOD', 'ADMIN']), async (re
 // TAREAS
 // ============================================
 
-app.get('/api/tasks', verifyToken, async (req, res) => {
+app.get('/api/tasks', verifyToken, checkAccessType('FICHAS'), async (req, res) => {
     try {
         const [rows] = await pool.query('SELECT * FROM tasks ORDER BY priority DESC, deadline ASC');
 
@@ -634,7 +642,7 @@ app.get('/api/tasks', verifyToken, async (req, res) => {
     }
 });
 
-app.post('/api/tasks', verifyToken, async (req, res) => {
+app.post('/api/tasks', verifyToken, checkAccessType('FICHAS'), async (req, res) => {
     try {
         const { 
             title = '', 
@@ -999,7 +1007,7 @@ async function nextFolioNumber(firstManual = null) {
 }
 
 // GET /api/folios — Listar folios
-app.get('/api/folios', verifyToken, async (req, res) => {
+app.get('/api/folios', verifyToken, checkAccessType('FOLIOS'), async (req, res) => {
     try {
         const { status, limit = 20, offset = 0 } = req.query;
         let query = `SELECT f.*, u.name AS assigned_by_name, u2.name AS cancelled_by_name
@@ -1058,7 +1066,7 @@ app.get('/api/folios/search', verifyToken, checkRole(['GOD', 'ADMIN']), async (r
 });
 
 // POST /api/folios — Crear solicitud de pre-folio
-app.post('/api/folios', verifyToken, async (req, res) => {
+app.post('/api/folios', verifyToken, checkAccessType('FOLIOS'), async (req, res) => {
     try {
         const {
             dirigido_a, cargo_dest, organismo, asunto,

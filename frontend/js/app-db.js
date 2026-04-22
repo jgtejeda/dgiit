@@ -283,6 +283,7 @@ function updateHeaderUI() {
 
 function applyRBAC() {
     const role = currentUser.role;
+    const accessType = currentUser.access_type;
     const body = document.body;
     
     // Ocultar Bitácora (Desktop y Mobile) para no-GOD
@@ -292,6 +293,16 @@ function applyRBAC() {
     
     document.getElementById('nav-users')?.classList.toggle('hidden', role === 'USER');
     document.getElementById('clear-archive')?.classList.toggle('hidden', role === 'USER');
+    
+    // Ocultar pestañas según access_type
+    // FOLIOS: solo ver Folios, FICHAS: solo ver Tablero, AMBOS: ver ambos
+    if (accessType === 'FOLIOS') {
+        document.getElementById('nav-board')?.classList.add('hidden');
+        document.getElementById('mobile-btn-board')?.classList.add('hidden');
+    } else if (accessType === 'FICHAS') {
+        document.getElementById('nav-folios')?.classList.add('hidden');
+        document.getElementById('mobile-btn-folios')?.classList.add('hidden');
+    }
     
     if (isGod) body.classList.add('status-god');
     else body.classList.remove('status-god');
