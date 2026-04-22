@@ -13,9 +13,15 @@ const apiClient = {
     getToken() { return localStorage.getItem('sgc_token'); },
     setToken(token) { localStorage.setItem('sgc_token', token); },
     clearSession() { 
-        localStorage.removeItem('sgc_token'); 
-        localStorage.removeItem('sgc_user');
-        window.location.reload(); 
+        const hasToken = localStorage.getItem('sgc_token');
+        const hasUser = localStorage.getItem('sgc_user');
+        
+        if (hasToken || hasUser) {
+            localStorage.removeItem('sgc_token'); 
+            localStorage.removeItem('sgc_user');
+            // Solo recargar si realmente estamos limpiando algo, para evitar bucles infinitos
+            window.location.reload(); 
+        }
     },
 
     // --- HELPER DE PETICIÓN ---

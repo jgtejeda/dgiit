@@ -1,7 +1,7 @@
 /* DGIIT | SECTURI — Service Worker v1.0 */
 
-const CACHE_NAME = 'dgiit-secturi-v1.6';
-const CDN_CACHE  = 'dgiit-secturi-cdn-v1.6';
+const CACHE_NAME = 'dgiit-secturi-v1.7';
+const CDN_CACHE  = 'dgiit-secturi-cdn-v1.7';
 
 const APP_SHELL = [
     '/',
@@ -77,7 +77,8 @@ self.addEventListener('fetch', event => {
             return fetch(request)
                 .then(res => {
                     if (!res.ok) return res;
-                    caches.open(CACHE_NAME).then(c => c.put(request, res.clone()));
+                    const resToCache = res.clone();
+                    caches.open(CACHE_NAME).then(c => c.put(request, resToCache));
                     return res;
                 })
                 .catch(() => {

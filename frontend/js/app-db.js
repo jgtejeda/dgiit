@@ -358,16 +358,15 @@ async function renderBoard() {
     tasksCache = result.data;
 
     tasksCache.filter(t => t.status !== 'ARCHIVED').forEach(task => {
-        // --- FILTROS TEMPORALMENTE DESACTIVADOS PARA ESTABILIDAD ---
+        // --- FILTROS ---
         const colFilters = currentFilters[task.status];
-        if (colFilters && false) { // Desactivado forzosamente para la junta
+        if (colFilters) {
             // 1. Filtrar por Usuario (en responsables)
             if (colFilters.user) {
                 const search = colFilters.user.toLowerCase();
                 const hasMatch = (task.assignees || []).some(asg => asg.user_name.toLowerCase().includes(search));
                 if (!hasMatch) return;
             }
-        }
             // 2. Filtrar por Mes (en deadline)
             if (colFilters.month !== '') {
                 if (!task.deadline) return;
@@ -378,6 +377,7 @@ async function renderBoard() {
             if (colFilters.priority && task.priority !== colFilters.priority) return;
         }
 
+        // --- CONSTRUCCIÓN DE TARJETA ---
         let deadlineDate = new Date(task.deadline || Date.now());
         if (isNaN(deadlineDate)) deadlineDate = new Date();
 

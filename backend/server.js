@@ -16,8 +16,7 @@ const fs = require('fs');
 const multer = require('multer');
 const { sendEmail } = require('./utils/mailer');
 const { sendPush } = require('./utils/push');
-const multer = require('multer');
-const pdfParse = require('pdf-parse');
+// pdf-parse se carga inline en PUT /api/folios/:id/upload-pdf para evitar errores de import en entornos sin PDF
 
 // ── Configuración de Multer: archivos PDF en disco ──────────────────────
 const UPLOADS_DIR = path.join(__dirname, 'uploads', 'folios');
@@ -53,7 +52,11 @@ const PORT = process.env.PORT || 3000;
 process.on('uncaughtException', (err) => { console.error('❌ EXCEPCIÓN NO CONTROLADA:', err); });
 process.on('unhandledRejection', (reason) => { console.error('⚠️ RECHAZO NO CONTROLADO:', reason); });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'secret-key-fallback';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+    console.error('❌ FATAL: JWT_SECRET no configurado en .env. Abortando.');
+    process.exit(1);
+}
 
 // Middleware: Verificar Token JWT
 const verifyToken = (req, res, next) => {
@@ -97,15 +100,6 @@ app.use(cors({
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
-// Multer: almacenar PDFs en memoria para OCR
-const uploadPDF = multer({
-    storage: multer.memoryStorage(),
-    limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
-    fileFilter: (req, file, cb) => {
-        if (file.mimetype === 'application/pdf') cb(null, true);
-        else cb(new Error('Solo se aceptan archivos PDF'));
-    }
-});
 
 // Limitación de peticiones para seguridad
 const limiter = rateLimit({
@@ -246,11 +240,47 @@ async function runMigrations(conn) {
     console.log('⚙️  Migraciones verificadas correctamente.');
 }
 
+// Asegurar que el Super Usuario (GOD) exista basado en el .env
+async function ensureSuperUser(conn) {
+    const email = process.env.SUPERUSER_EMAIL;
+    const pass = process.env.SUPERUSER_PASS;
+    const name = process.env.SUPERUSER_NAME || 'Omnisciente';
+
+    if (!email || !pass) {
+        console.log('ℹ️  No se detectó configuración de SUPERUSER en .env');
+        return;
+    }
+
+    try {
+        const [rows] = await conn.query('SELECT id, role FROM users WHERE email = ?', [email]);
+        const hashedPass = await bcrypt.hash(pass, 10);
+        
+        if (rows.length === 0) {
+            console.log(`🚀 Creando Super Usuario inicial: ${email}`);
+            await conn.query(
+                'INSERT INTO users (email, password, name, role, position, department) VALUES (?, ?, ?, ?, ?, ?)',
+                [email, hashedPass, name, 'GOD', 'Super Usuario', 'Sistema']
+            );
+        } else {
+            // Siempre asegurar que el rol sea GOD y la contraseña coincida con el .env
+            // Esto permite recuperación de acceso simplemente editando el .env
+            console.log(`⚙️  Sincronizando Super Usuario: ${email}`);
+            await conn.query(
+                'UPDATE users SET password = ?, role = "GOD", name = ? WHERE email = ?',
+                [hashedPass, name, email]
+            );
+        }
+    } catch (e) {
+        console.error('❌ Error al verificar Super Usuario:', e.message);
+    }
+}
+
 async function testConnection() {
     try {
         const connection = await pool.getConnection();
         console.log('✅ Conectado a la base de datos MySQL');
         await runMigrations(connection);
+        await ensureSuperUser(connection);
         connection.release();
     } catch (error) {
         console.error('❌ Error conectando a MySQL:', error.message);
@@ -299,6 +329,12 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
         } else if (eventType === 'TODO') {
             msgPayload.title = '🚩 Etapa Asignada';
             msgPayload.body = `${authorName} te asignó: "${taskData.todo_label}" en la ficha: ${taskTitle}`;
+        } else if (eventType === 'TODO_COMPLETE') {
+            msgPayload.title = '✅ Etapa Completada';
+            msgPayload.body = `${authorName} marcó como completada: "${taskData.label}" en "${taskTitle}"`;
+        } else if (eventType === 'TODO_DELETE') {
+            msgPayload.title = '🗑️ Etapa Eliminada';
+            msgPayload.body = `${authorName} eliminó la etapa: "${taskData.label}" de "${taskTitle}"`;
         }
 
         for (const email of recipients) {
@@ -319,21 +355,6 @@ async function sendContextualEmails(eventType, taskData, authorEmail, commentDat
             }
         }
     } catch (e) { console.error('❌ Error crítico en sendContextualEmails:', e); }
-}
-
-/**
- * Guarda una notificación in-app en la base de datos
- */
-async function saveAppNotification(userEmail, title, message, taskId) {
-    if (!userEmail) return;
-    try {
-        await pool.query(
-            'INSERT INTO app_notifications (user_email, title, message, task_id) VALUES (?, ?, ?, ?)',
-            [userEmail, title, message, taskId || null]
-        );
-    } catch (e) {
-        console.error('Error guardando notificación in-app:', e);
-    }
 }
 
 /**
@@ -405,13 +426,11 @@ app.post('/api/login', async (req, res) => {
                 isMatch = await bcrypt.compare(password, dbPassword);
             } catch (e) {
                 isMatch = false;
-                require('fs').appendFileSync('login_debug.log', `Bcrypt error for ${email}: ${e.message}\n`);
+                console.error(`Bcrypt error for ${email}:`, e.message);
             }
 
             // 2. Fallback: Comparar texto plano (migración)
             const isPlainTextMatch = (password === dbPassword);
-            
-            require('fs').appendFileSync('login_debug.log', `Login attempt for ${email}: isMatch=${isMatch}, isPlainTextMatch=${isPlainTextMatch}\n`);
 
             if (isMatch || isPlainTextMatch) {
                 // Si hizo match con texto plano, actualizar a hash automáticamente
@@ -642,7 +661,7 @@ app.post('/api/tasks', verifyToken, async (req, res) => {
         }
         
         // Notificación en segundo plano
-        sendContextualEmails('CREATE', { id: result.insertId, title, assignee, status, progress }, author_email);
+        sendContextualEmails('CREATE', { id: result.insertId, title, assignee, status, progress }, req.user.email);
 
         res.json({ success: true, id: result.insertId });
     } catch (error) {
@@ -662,7 +681,7 @@ app.put('/api/tasks/:id', verifyToken, async (req, res) => {
         const formattedDate = formatMySQLDate(deadline);
         const finalProgress = calcProgress(status, progress);
 
-        const [result] = await pool.query(
+        await pool.query(
             'UPDATE tasks SET title = ?, description = ?, status = ?, assignee = ?, deadline = ?, priority = ?, progress = ? WHERE id = ?',
             [title, description, status, assignee, formattedDate, priority, finalProgress, id]
         );
@@ -687,7 +706,7 @@ app.put('/api/tasks/:id', verifyToken, async (req, res) => {
     }
 });
 
-app.delete('/api/tasks/:id', verifyToken, async (req, res) => {
+app.delete('/api/tasks/:id', verifyToken, checkRole(['GOD', 'ADMIN']), async (req, res) => {
     try {
         await pool.query('DELETE FROM tasks WHERE id = ?', [req.params.id]);
         res.json({ success: true });
@@ -719,15 +738,16 @@ app.post('/api/tasks/:id/todos', verifyToken, async (req, res) => {
         );
 
         // Notificar en segundo plano
+        let todoAssigneeEmail = null;
         if (assigned_to) {
             const [uRows] = await pool.query('SELECT email FROM users WHERE name = ?', [assigned_to]);
             if (uRows.length) todoAssigneeEmail = uRows[0].email;
         }
 
-        sendContextualEmails('TODO', { 
-            id: req.params.id, 
-            todo_label: label, 
-            todo_assignee_email: todoAssigneeEmail 
+        sendContextualEmails('TODO', {
+            id: req.params.id,
+            todo_label: label,
+            todo_assignee_email: todoAssigneeEmail
         }, req.user.email);
 
         res.json({ success: true, id: result.insertId });
@@ -736,12 +756,10 @@ app.post('/api/tasks/:id/todos', verifyToken, async (req, res) => {
 
 app.put('/api/todos/:id', verifyToken, async (req, res) => {
     try {
-        require('fs').appendFileSync('notify_debug2.log', `PUT /api/todos/${req.params.id}\n`);
         const { is_done, assigned_to } = req.body;
-        
+
         // Obtener info antes de actualizar para la notificación
         const [todoRows] = await pool.query('SELECT t.title, td.label, td.task_id FROM task_todos td JOIN tasks t ON t.id = td.task_id WHERE td.id = ?', [req.params.id]);
-        require('fs').appendFileSync('notify_debug2.log', `todoRows length: ${todoRows.length}, is_done: ${is_done}\n`);
 
         if (assigned_to !== undefined) {
             await pool.query(
@@ -753,19 +771,17 @@ app.put('/api/todos/:id', verifyToken, async (req, res) => {
         }
 
         if (todoRows.length && is_done) {
-            require('fs').appendFileSync('notify_debug2.log', `Calling sendContextualEmails TODO_COMPLETE\n`);
             await sendContextualEmails('TODO_COMPLETE', {
                 id: todoRows[0].task_id,
                 title: todoRows[0].title,
                 label: todoRows[0].label
             }, req.user.email);
-            require('fs').appendFileSync('notify_debug2.log', `Finished sendContextualEmails TODO_COMPLETE\n`);
         }
 
         res.json({ success: true });
-    } catch (e) { 
-        require('fs').appendFileSync('notify_debug2.log', `Error: ${e.message}\n`);
-        res.status(500).json({ success: false }); 
+    } catch (e) {
+        console.error('Error PUT /api/todos/:id:', e.message);
+        res.status(500).json({ success: false });
     }
 });
 
@@ -834,26 +850,22 @@ app.delete('/api/tasks/:id/assignees/:email', verifyToken, async (req, res) => {
 
 app.delete('/api/todos/:id', verifyToken, async (req, res) => {
     try {
-        require('fs').appendFileSync('notify_debug2.log', `DELETE /api/todos/${req.params.id}\n`);
         const [todoRows] = await pool.query('SELECT t.title, td.label, td.task_id FROM task_todos td JOIN tasks t ON t.id = td.task_id WHERE td.id = ?', [req.params.id]);
-        require('fs').appendFileSync('notify_debug2.log', `todoRows length: ${todoRows.length}\n`);
 
         await pool.query('DELETE FROM task_todos WHERE id = ?', [req.params.id]);
 
         if (todoRows.length) {
-            require('fs').appendFileSync('notify_debug2.log', `Calling sendContextualEmails TODO_DELETE\n`);
             await sendContextualEmails('TODO_DELETE', {
                 id: todoRows[0].task_id,
                 title: todoRows[0].title,
                 label: todoRows[0].label
             }, req.user.email);
-            require('fs').appendFileSync('notify_debug2.log', `Finished sendContextualEmails TODO_DELETE\n`);
         }
 
         res.json({ success: true });
-    } catch (e) { 
-        require('fs').appendFileSync('notify_debug2.log', `Error in DELETE: ${e.message}\n`);
-        res.status(500).json({ success: false }); 
+    } catch (e) {
+        console.error('Error DELETE /api/todos/:id:', e.message);
+        res.status(500).json({ success: false });
     }
 });
 
@@ -873,7 +885,7 @@ app.get('/api/tasks/:id/comments', verifyToken, async (req, res) => {
 
 app.post('/api/tasks/:id/comments', verifyToken, async (req, res) => {
     try {
-        const { author_name, author_role, content, author_email } = req.body;
+        const { author_name, author_role, content } = req.body;
         const [result] = await pool.query(
             'INSERT INTO task_comments (task_id, author_name, author_role, content) VALUES (?, ?, ?, ?)',
             [req.params.id, author_name, author_role, content]
@@ -934,15 +946,6 @@ app.post('/api/notifications/subscribe', verifyToken, async (req, res) => {
 // --- CENTRO DE NOTIFICACIONES: Listar y Marcar como leído ---
 app.get('/api/notifications', verifyToken, async (req, res) => {
     try {
-        // --- INYECCIÓN DE PRUEBA (Solo la primera vez si no hay avisos de este tipo) ---
-        const [testCheck] = await pool.query('SELECT id FROM notifications WHERE user_id = ? AND title LIKE "%🔧%"', [req.user.id]);
-        if (testCheck.length === 0) {
-            await pool.query(
-                'INSERT INTO notifications (user_id, title, message, type) VALUES (?, "🔧 Sistema Reconectado", "Gib, la conexión de notificaciones ha sido restaurada. Ahora ya puedes recibir avisos de Eli y el equipo.", "SYSTEM")',
-                [req.user.id]
-            );
-        }
-
         const [rows] = await pool.query(
             'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50',
             [req.user.id]
@@ -973,8 +976,13 @@ app.put('/api/notifications/mark-read', verifyToken, async (req, res) => {
 // PRE-FOLIO
 // ============================================
 
-const ELIZABETH_EMAIL = 'emartinezes@guanajuato.gob.mx';
-const SITE_URL = 'https://intratur.guanajuato.site/dgiit';
+const SITE_URL = process.env.SITE_URL || 'https://intratur.guanajuato.gob.mx/dgiit/';
+
+// Helper: obtiene los emails de todos los admins para notificaciones de folios
+async function getAdminEmails() {
+    const [rows] = await pool.query("SELECT email FROM users WHERE role = 'ADMIN'");
+    return rows.map(r => r.email);
+}
 
 // Helper: siguiente número de folio
 async function nextFolioNumber(firstManual = null) {
@@ -1074,33 +1082,36 @@ app.post('/api/folios', verifyToken, async (req, res) => {
 
         const medioLabel = { 'PAM': 'PAM', 'FIRMA_AUTOGRAFA': 'Firma Autógrafa', 'PAM_Y_FIRMA': 'PAM y Firma Autógrafa', 'CORREO': 'Por Correo' };
 
-        // Correo a Elizabeth
-        sendEmail({
-            to: ELIZABETH_EMAIL,
-            subject: `Nueva Solicitud de Pre-Folio — ${nombre}`,
-            title: '📋 Nueva Solicitud de Pre-Folio',
-            message: `
-                <p>El usuario <b>${nombre}</b> ha solicitado un número de folio.</p>
-                <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:14px;">
-                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Dirigido a:</td><td style="padding:8px;">${dirigido_a}</td></tr>
-                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Cargo:</td><td style="padding:8px;">${cargo_dest}</td></tr>
-                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Organismo / Dependencia:</td><td style="padding:8px;">${organismo}</td></tr>
-                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Asunto:</td><td style="padding:8px;">${asunto}</td></tr>
-                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Quien Firma:</td><td style="padding:8px;">${quien_firma}</td></tr>
-                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Área de Resguardo:</td><td style="padding:8px;">${area_resguardo}</td></tr>
-                  <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Medio de Envío:</td><td style="padding:8px;">${medioLabel[medio_envio] || medio_envio}</td></tr>
-                </table>
-                <p style="margin-top:16px;color:#6b7280;font-size:13px;">ID de solicitud: #${result.insertId} — Accede al sistema para asignar el folio.</p>
-            `,
-            actionLink: SITE_URL
-        });
+        // Correo a todos los admins
+        const adminEmails = await getAdminEmails();
+        for (const adminEmail of adminEmails) {
+            sendEmail({
+                to: adminEmail,
+                subject: `Nueva Solicitud de Pre-Folio — ${nombre}`,
+                title: '📋 Nueva Solicitud de Pre-Folio',
+                message: `
+                    <p>El usuario <b>${nombre}</b> ha solicitado un número de folio.</p>
+                    <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:14px;">
+                      <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Dirigido a:</td><td style="padding:8px;">${dirigido_a}</td></tr>
+                      <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Cargo:</td><td style="padding:8px;">${cargo_dest}</td></tr>
+                      <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Organismo / Dependencia:</td><td style="padding:8px;">${organismo}</td></tr>
+                      <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Asunto:</td><td style="padding:8px;">${asunto}</td></tr>
+                      <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Quien Firma:</td><td style="padding:8px;">${quien_firma}</td></tr>
+                      <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Área de Resguardo:</td><td style="padding:8px;">${area_resguardo}</td></tr>
+                      <tr><td style="padding:8px;background:#f3f4f6;font-weight:bold;">Medio de Envío:</td><td style="padding:8px;">${medioLabel[medio_envio] || medio_envio}</td></tr>
+                    </table>
+                    <p style="margin-top:16px;color:#6b7280;font-size:13px;">ID de solicitud: #${result.insertId} — Accede al sistema para asignar el folio.</p>
+                `,
+                actionLink: SITE_URL
+            });
+        }
 
         // Recibo al solicitante
         sendEmail({
             to: req.user.email,
             subject: 'Recibo: Tu solicitud de pre-folio fue enviada',
             title: '✅ Solicitud Enviada',
-            message: `Tu solicitud de folio para el asunto <b>${asunto}</b> ha sido enviada correctamente. Elizabeth la revisará y te notificará cuando se te asigne el número de folio.`,
+            message: `Tu solicitud de folio para el asunto <b>${asunto}</b> ha sido enviada correctamente. Un administrador la revisará y te notificará cuando se te asigne el número de folio.`,
             actionLink: SITE_URL
         });
 
@@ -1305,15 +1316,18 @@ app.put('/api/folios/:id/upload-pdf', verifyToken, (req, res, next) => {
             [req.file.filename, req.file.path, pdfText, id]
         );
 
-        // Notificar a Elizabeth
+        // Notificar a todos los admins
         const folio = existing[0];
-        sendEmail({
-            to: ELIZABETH_EMAIL,
-            subject: `PDF de evidencia cargado — ${folio.folio_number || 'Pre-Folio #' + id}`,
-            title: '📄 Evidencia PDF Recibida',
-            message: `El usuario <b>${folio.solicitante_nombre}</b> ha subido el PDF de evidencia para el folio <b>${folio.folio_number || '#' + id}</b>.<br/>Asunto: ${folio.asunto}`,
-            actionLink: SITE_URL
-        });
+        const adminEmailsPdf = await getAdminEmails();
+        for (const adminEmail of adminEmailsPdf) {
+            sendEmail({
+                to: adminEmail,
+                subject: `PDF de evidencia cargado — ${folio.folio_number || 'Pre-Folio #' + id}`,
+                title: '📄 Evidencia PDF Recibida',
+                message: `El usuario <b>${folio.solicitante_nombre}</b> ha subido el PDF de evidencia para el folio <b>${folio.folio_number || '#' + id}</b>.<br/>Asunto: ${folio.asunto}`,
+                actionLink: SITE_URL
+            });
+        }
 
         res.json({ success: true, filename: req.file.filename });
     } catch (e) {
